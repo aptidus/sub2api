@@ -16,7 +16,7 @@ func setupAdminRouter() (*gin.Engine, *stubAdminService) {
 	router := gin.New()
 	adminSvc := newStubAdminService()
 
-	userHandler := NewUserHandler(adminSvc, nil)
+	userHandler := NewUserHandler(adminSvc, nil, nil)
 	groupHandler := NewGroupHandler(adminSvc, nil, nil)
 	proxyHandler := NewProxyHandler(adminSvc)
 	redeemHandler := NewRedeemHandler(adminSvc, nil)
@@ -29,6 +29,7 @@ func setupAdminRouter() (*gin.Engine, *stubAdminService) {
 	router.DELETE("/api/v1/admin/users/:id", userHandler.Delete)
 	router.POST("/api/v1/admin/users/:id/balance", userHandler.UpdateBalance)
 	router.GET("/api/v1/admin/users/:id/api-keys", userHandler.GetUserAPIKeys)
+	router.POST("/api/v1/admin/users/:id/api-keys", userHandler.CreateUserAPIKey)
 	router.GET("/api/v1/admin/users/:id/usage", userHandler.GetUserUsage)
 
 	router.GET("/api/v1/admin/groups", groupHandler.List)
@@ -130,6 +131,20 @@ func TestUserHandlerEndpoints(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/1/usage?period=today", nil)
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestUserHandlerCreateAPIKeyRouteRequiresConfiguredService(t *testing.T) {
+	router, _ := setupAdminRouter()
+
+	body, err := json.Marshal(map[string]any{"name": "customer-key"})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/2/api-keys", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestUserHandlerBindAuthIdentityMapsRequest(t *testing.T) {

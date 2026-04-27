@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey } from '@/types'
+import type { AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey, CreateApiKeyRequest } from '@/types'
 
 export interface AdminBindAuthIdentityChannelRequest {
   channel: string
@@ -197,6 +197,15 @@ export async function getUserApiKeys(id: number): Promise<PaginatedResponse<ApiK
 }
 
 /**
+ * Create an API key owned by a specific user.
+ * Admin-created keys must not be attached to the admin account by accident.
+ */
+export async function createUserApiKey(id: number, keyData: CreateApiKeyRequest): Promise<ApiKey> {
+  const { data } = await apiClient.post<ApiKey>(`/admin/users/${id}/api-keys`, keyData)
+  return data
+}
+
+/**
  * Get user's usage statistics
  * @param id - User ID
  * @param period - Time period
@@ -307,6 +316,7 @@ export const usersAPI = {
   updateConcurrency,
   toggleStatus,
   getUserApiKeys,
+  createUserApiKey,
   getUserUsageStats,
   getUserBalanceHistory,
   replaceGroup,

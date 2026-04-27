@@ -7,6 +7,41 @@
         </div>
         <div><p class="font-medium text-gray-900 dark:text-white">{{ user.email }}</p><p class="text-sm text-gray-500 dark:text-dark-400">{{ user.username }}</p></div>
       </div>
+
+      <div class="rounded-xl border border-primary-100 bg-primary-50/70 p-4 dark:border-primary-900/40 dark:bg-primary-900/10">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.users.createApiKeyForUser') }}</p>
+            <p class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.users.createApiKeyForUserHint') }}</p>
+          </div>
+          <button class="btn btn-primary btn-sm" :disabled="creatingKey || !newKeyName.trim()" @click="createKeyForUser">
+            <svg v-if="creatingKey" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <span>{{ t('admin.users.createApiKey') }}</span>
+          </button>
+        </div>
+        <div class="grid gap-3 md:grid-cols-[1fr_220px]">
+          <input
+            v-model="newKeyName"
+            type="text"
+            class="input"
+            :placeholder="t('admin.users.apiKeyNamePlaceholder')"
+          />
+          <select v-model="newKeyGroupId" class="input">
+            <option :value="null">{{ t('admin.users.none') }}</option>
+            <option v-for="group in allGroups" :key="group.id" :value="group.id">
+              {{ group.name }}
+            </option>
+          </select>
+        </div>
+        <div v-if="createdKey" class="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-900/50 dark:bg-green-900/10">
+          <p class="mb-2 text-xs font-medium text-green-800 dark:text-green-300">{{ t('admin.users.copyNewKeyNow') }}</p>
+          <div class="flex items-center gap-2">
+            <code class="min-w-0 flex-1 truncate rounded bg-white px-2 py-1.5 font-mono text-xs text-gray-700 dark:bg-dark-800 dark:text-dark-100">{{ createdKey.key }}</code>
+            <button class="btn btn-secondary btn-xs" @click="copyNewKey">{{ t('keys.copy') }}</button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="loading" class="flex justify-center py-8"><svg class="h-8 w-8 animate-spin text-primary-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>
       <div v-else-if="apiKeys.length === 0" class="py-8 text-center"><p class="text-sm text-gray-500">{{ t('admin.users.noApiKeys') }}</p></div>
       <div v-else ref="scrollContainerRef" class="max-h-96 space-y-3 overflow-y-auto" @scroll="closeGroupSelector">
@@ -102,6 +137,7 @@ import { ref, computed, watch, onMounted, onUnmounted, type ComponentPublicInsta
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import { useClipboard } from '@/composables/useClipboard'
 import { formatDateTime } from '@/utils/format'
 import type { AdminUser, AdminGroup, ApiKey } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -112,10 +148,15 @@ const props = defineProps<{ show: boolean; user: AdminUser | null }>()
 const emit = defineEmits(['close'])
 const { t } = useI18n()
 const appStore = useAppStore()
+const { copyToClipboard } = useClipboard()
 
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])
 const loading = ref(false)
+const creatingKey = ref(false)
+const createdKey = ref<ApiKey | null>(null)
+const newKeyName = ref('')
+const newKeyGroupId = ref<number | null>(null)
 const updatingKeyIds = ref(new Set<number>())
 const groupSelectorKeyId = ref<number | null>(null)
 const dropdownPosition = ref<{ top: number; left: number } | null>(null)
@@ -138,6 +179,9 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 
 watch(() => props.show, (v) => {
   if (v && props.user) {
+    newKeyName.value = `${props.user.email} key`
+    newKeyGroupId.value = null
+    createdKey.value = null
     load()
     loadGroups()
   } else {
@@ -166,6 +210,29 @@ const loadGroups = async () => {
   } catch (error) {
     console.error('Failed to load groups:', error)
   }
+}
+
+const createKeyForUser = async () => {
+  if (!props.user || !newKeyName.value.trim()) return
+  creatingKey.value = true
+  try {
+    const key = await adminAPI.users.createUserApiKey(props.user.id, {
+      name: newKeyName.value.trim(),
+      group_id: newKeyGroupId.value
+    })
+    createdKey.value = key
+    apiKeys.value = [key, ...apiKeys.value.filter((item) => item.id !== key.id)]
+    appStore.showSuccess(t('admin.users.apiKeyCreated'))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.users.apiKeyCreateFailed'))
+  } finally {
+    creatingKey.value = false
+  }
+}
+
+const copyNewKey = async () => {
+  if (!createdKey.value) return
+  await copyToClipboard(createdKey.value.key, t('keys.copied'))
 }
 
 const DROPDOWN_HEIGHT = 272 // max-h-64 = 16rem = 256px + padding

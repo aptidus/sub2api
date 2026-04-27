@@ -22,13 +22,15 @@ type UserWithConcurrency struct {
 type UserHandler struct {
 	adminService       service.AdminService
 	concurrencyService *service.ConcurrencyService
+	apiKeyService      *service.APIKeyService
 }
 
 // NewUserHandler creates a new admin user handler
-func NewUserHandler(adminService service.AdminService, concurrencyService *service.ConcurrencyService) *UserHandler {
+func NewUserHandler(adminService service.AdminService, concurrencyService *service.ConcurrencyService, apiKeyService *service.APIKeyService) *UserHandler {
 	return &UserHandler{
 		adminService:       adminService,
 		concurrencyService: concurrencyService,
+		apiKeyService:      apiKeyService,
 	}
 }
 
@@ -66,6 +68,20 @@ type UpdateBalanceRequest struct {
 	Balance   float64 `json:"balance" binding:"required,gt=0"`
 	Operation string  `json:"operation" binding:"required,oneof=set add subtract"`
 	Notes     string  `json:"notes"`
+}
+
+// AdminCreateUserAPIKeyRequest represents admin-created API key payload.
+type AdminCreateUserAPIKeyRequest struct {
+	Name          string   `json:"name" binding:"required"`
+	GroupID       *int64   `json:"group_id"`
+	CustomKey     *string  `json:"custom_key"`
+	IPWhitelist   []string `json:"ip_whitelist"`
+	IPBlacklist   []string `json:"ip_blacklist"`
+	Quota         *float64 `json:"quota"`
+	ExpiresInDays *int     `json:"expires_in_days"`
+	RateLimit5h   *float64 `json:"rate_limit_5h"`
+	RateLimit1d   *float64 `json:"rate_limit_1d"`
+	RateLimit7d   *float64 `json:"rate_limit_7d"`
 }
 
 type BindUserAuthIdentityRequest struct {
@@ -365,6 +381,56 @@ func (h *UserHandler) GetUserAPIKeys(c *gin.Context) {
 		out = append(out, *dto.APIKeyFromService(&keys[i]))
 	}
 	response.Paginated(c, out, total, page, pageSize)
+}
+
+// CreateUserAPIKey handles creating an API key for a selected user.
+// POST /api/v1/admin/users/:id/api-keys
+func (h *UserHandler) CreateUserAPIKey(c *gin.Context) {
+	if h.apiKeyService == nil {
+		response.InternalError(c, "API key service is not configured")
+		return
+	}
+
+	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid user ID")
+		return
+	}
+
+	var req AdminCreateUserAPIKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	svcReq := service.CreateAPIKeyRequest{
+		Name:          req.Name,
+		GroupID:       req.GroupID,
+		CustomKey:     req.CustomKey,
+		IPWhitelist:   req.IPWhitelist,
+		IPBlacklist:   req.IPBlacklist,
+		ExpiresInDays: req.ExpiresInDays,
+	}
+	if req.Quota != nil {
+		svcReq.Quota = *req.Quota
+	}
+	if req.RateLimit5h != nil {
+		svcReq.RateLimit5h = *req.RateLimit5h
+	}
+	if req.RateLimit1d != nil {
+		svcReq.RateLimit1d = *req.RateLimit1d
+	}
+	if req.RateLimit7d != nil {
+		svcReq.RateLimit7d = *req.RateLimit7d
+	}
+
+	key, err := h.apiKeyService.Create(c.Request.Context(), userID, svcReq)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, dto.APIKeyFromService(key))
 }
 
 // GetUserUsage handles getting user's usage statistics
