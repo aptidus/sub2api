@@ -1,0 +1,28 @@
+{
+	auto_https off
+	admin off
+}
+
+:{$PORT:8080} {
+	@health path /relay-health
+	respond @health "ok" 200
+
+	header {
+		-Server
+		X-Sub2API-Relay china-apac
+	}
+
+	reverse_proxy {$SUB2API_ORIGIN:https://sub2api-app-production.up.railway.app} {
+		header_up Host {upstream_hostport}
+		header_up X-Sub2API-Relay china-apac
+		flush_interval -1
+
+		transport http {
+			versions 1.1 2
+			dial_timeout 10s
+			response_header_timeout 60s
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}
