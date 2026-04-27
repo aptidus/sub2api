@@ -35,6 +35,31 @@ func (p *Proxy) URL() string {
 	return u.String()
 }
 
+func (p *Proxy) MaskedURL() string {
+	if p == nil {
+		return ""
+	}
+	return MaskProxyURL(p.URL())
+}
+
+func MaskProxyURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u == nil {
+		return "<invalid-proxy-url>"
+	}
+	if u.User != nil {
+		username := u.User.Username()
+		if username == "" {
+			username = "***"
+		}
+		u.User = url.UserPassword(username, "***")
+	}
+	return u.String()
+}
+
 type ProxyWithAccountCount struct {
 	Proxy
 	AccountCount   int64

@@ -175,7 +175,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	}
 	proxyInfo := "direct"
 	if proxyURL != "" {
-		proxyInfo = proxyURL
+		proxyInfo = service.MaskProxyURL(proxyURL)
 	}
 	slog.Debug("tls_fingerprint_enabled", "account_id", accountID, "target", targetHost, "proxy", proxyInfo, "profile", profile.Name)
 

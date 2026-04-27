@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +92,35 @@ func TestProxyURL_SpecialCharactersRoundTrip(t *testing.T) {
 	}
 	if pass != proxy.Password {
 		t.Fatalf("password mismatch after parse: got=%q want=%q", pass, proxy.Password)
+	}
+}
+
+func TestMaskProxyURLRedactsPassword(t *testing.T) {
+	t.Parallel()
+
+	raw := "http://user:secret@proxy.example.com:8080"
+	masked := MaskProxyURL(raw)
+
+	if strings.Contains(masked, "secret") {
+		t.Fatalf("masked proxy URL leaked password: %q", masked)
+	}
+	if masked != "http://user:%2A%2A%2A@proxy.example.com:8080" {
+		t.Fatalf("unexpected masked URL: %q", masked)
+	}
+}
+
+func TestProxyMaskedURL(t *testing.T) {
+	t.Parallel()
+
+	p := &Proxy{
+		Protocol: "http",
+		Host:     "proxy.example.com",
+		Port:     8080,
+		Username: "user",
+		Password: "secret",
+	}
+
+	if strings.Contains(p.MaskedURL(), "secret") {
+		t.Fatalf("masked proxy URL leaked password: %q", p.MaskedURL())
 	}
 }
