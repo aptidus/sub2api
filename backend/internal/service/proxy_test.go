@@ -124,3 +124,17 @@ func TestProxyMaskedURL(t *testing.T) {
 		t.Fatalf("masked proxy URL leaked password: %q", p.MaskedURL())
 	}
 }
+
+func TestMaskProxyURLCredentialsRedactsUsernameAndPassword(t *testing.T) {
+	t.Parallel()
+
+	raw := "http://user:secret@proxy.example.com:8080"
+	masked := MaskProxyURLCredentials(raw)
+
+	if strings.Contains(masked, "user") || strings.Contains(masked, "secret") {
+		t.Fatalf("fully masked proxy URL leaked credentials: %q", masked)
+	}
+	if masked != "http://%2A%2A%2A:%2A%2A%2A@proxy.example.com:8080" {
+		t.Fatalf("unexpected fully masked URL: %q", masked)
+	}
+}

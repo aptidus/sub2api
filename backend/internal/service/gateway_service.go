@@ -4245,7 +4245,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if account.ProxyID != nil && account.Proxy != nil {
 		if !account.IsCustomBaseURLEnabled() || account.GetCustomBaseURL() == "" {
 			proxyURL = account.Proxy.URL()
-			proxyLogURL = account.Proxy.MaskedURL()
+			proxyLogURL = account.Proxy.FullyMaskedURL()
 		}
 	}
 

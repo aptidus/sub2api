@@ -42,6 +42,13 @@ func (p *Proxy) MaskedURL() string {
 	return MaskProxyURL(p.URL())
 }
 
+func (p *Proxy) FullyMaskedURL() string {
+	if p == nil {
+		return ""
+	}
+	return MaskProxyURLCredentials(p.URL())
+}
+
 func MaskProxyURL(raw string) string {
 	if raw == "" {
 		return ""
@@ -56,6 +63,20 @@ func MaskProxyURL(raw string) string {
 			username = "***"
 		}
 		u.User = url.UserPassword(username, "***")
+	}
+	return u.String()
+}
+
+func MaskProxyURLCredentials(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u == nil {
+		return "<invalid-proxy-url>"
+	}
+	if u.User != nil {
+		u.User = url.UserPassword("***", "***")
 	}
 	return u.String()
 }
