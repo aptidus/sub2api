@@ -167,6 +167,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		parsedReq.Body = h.gatewayService.ReplaceModelInBody(parsedReq.Body, directModel)
 		body = h.gatewayService.ReplaceModelInBody(body, directModel)
 		channelMapping = service.ChannelMappingResult{MappedModel: directModel}
+	} else if service.IsSyntheticAdminModelAPIKey(apiKey) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", "Admin API key model calls only allow Opus-Latest or claude-opus-4-7")
+		return
 	}
 
 	// 设置 max_tokens=1 + haiku 探测请求标识到 context 中

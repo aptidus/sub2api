@@ -89,6 +89,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		body = h.gatewayService.ReplaceModelInBody(body, directModel)
 		channelMapping = service.ChannelMappingResult{MappedModel: directModel}
 		setOpsRequestContext(c, reqModel, reqStream, body)
+	} else if service.IsSyntheticAdminModelAPIKey(apiKey) {
+		h.responsesErrorResponse(c, http.StatusForbidden, "permission_error", "Admin API key model calls only allow Opus-Latest or claude-opus-4-7")
+		return
 	}
 
 	// Claude Code only restriction:
