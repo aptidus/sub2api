@@ -132,6 +132,7 @@ docs/*
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/USER_API_CN.md
+!docs/SPEARAGENT_SUB2API_INTEGRATION_HANDOFF.md
 .serena/
 .codex/
 frontend/coverage/
