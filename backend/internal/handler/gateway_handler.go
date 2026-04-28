@@ -160,6 +160,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	if directModel, ok := service.ResolveAdminDirectModel(apiKey, reqModel); ok {
+		reqLog = reqLog.With(zap.String("admin_direct_model", directModel))
+		reqModel = directModel
+		parsedReq.Model = directModel
+		parsedReq.Body = h.gatewayService.ReplaceModelInBody(parsedReq.Body, directModel)
+		body = h.gatewayService.ReplaceModelInBody(body, directModel)
+		channelMapping = service.ChannelMappingResult{MappedModel: directModel}
+	}
 
 	// 设置 max_tokens=1 + haiku 探测请求标识到 context 中
 	// 必须在 SetClaudeCodeClientContext 之前设置，因为 ClaudeCodeValidator 需要读取此标识进行绕过判断

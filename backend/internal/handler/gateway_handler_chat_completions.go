@@ -83,6 +83,13 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	if directModel, ok := service.ResolveAdminDirectModel(apiKey, reqModel); ok {
+		reqLog = reqLog.With(zap.String("admin_direct_model", directModel))
+		reqModel = directModel
+		body = h.gatewayService.ReplaceModelInBody(body, directModel)
+		channelMapping = service.ChannelMappingResult{MappedModel: directModel}
+		setOpsRequestContext(c, reqModel, reqStream, body)
+	}
 
 	// Claude Code only restriction
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
@@ -150,6 +157,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	if parsedReq == nil {
 		parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: body}
 	}
+	parsedReq.Model = reqModel
+	parsedReq.Body = body
 	parsedReq.SessionContext = &service.SessionContext{
 		ClientIP:  ip.GetClientIP(c),
 		UserAgent: c.GetHeader("User-Agent"),
