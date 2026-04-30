@@ -1352,3 +1352,26 @@ func TestResponsesToAnthropicRequest_CodexToolLoopAndReasoning(t *testing.T) {
 	assert.Equal(t, "call_list", toolResultBlocks[0].ToolUseID)
 	assert.JSONEq(t, `"{\"sessions\":[\"claude\",\"codex\"]}"`, string(toolResultBlocks[0].Content))
 }
+
+func TestResponsesToAnthropicRequest_WebSearchToolOmitsInputSchema(t *testing.T) {
+	maxTokens := 128
+	req := &ResponsesRequest{
+		Model:           "claude-opus-4-7",
+		MaxOutputTokens: &maxTokens,
+		Stream:          true,
+		Input:           json.RawMessage(`"hello"`),
+		Tools: []ResponsesTool{{
+			Type: "web_search_20250305",
+			Name: "web_search",
+		}},
+	}
+
+	got, err := ResponsesToAnthropicRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Tools, 1)
+
+	payload, err := json.Marshal(got.Tools[0])
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type":"web_search_20250305","name":"web_search"}`, string(payload))
+	assert.NotContains(t, string(payload), "input_schema")
+}

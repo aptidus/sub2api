@@ -85,7 +85,7 @@ type AnthropicTool struct {
 	Type         string                 `json:"type,omitempty"` // e.g. "web_search_20250305" for server tools
 	Name         string                 `json:"name"`
 	Description  string                 `json:"description,omitempty"`
-	InputSchema  json.RawMessage        `json:"input_schema"` // JSON Schema object
+	InputSchema  json.RawMessage        `json:"input_schema,omitempty"` // JSON Schema object; omitted for Anthropic server tools
 	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
 }
 
