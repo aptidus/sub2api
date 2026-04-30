@@ -1,5 +1,20 @@
 # Sub2API Handover
 
+## 2026-04-29 Responses tool-argument buffering fix deployed
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`.
+- Fixed the non-streaming `/v1/responses` bridge for Anthropic streaming tool calls. Anthropic starts a `tool_use` block with placeholder `input:{}` and then streams the real tool arguments as `input_json_delta`; the buffered Responses converter was concatenating these into malformed `{}{...}` arguments.
+- `appendRawJSON` now replaces an empty `{}` placeholder with the first real streamed JSON fragment instead of appending to it.
+- Added regression coverage in `backend/internal/service/gateway_forward_as_responses_test.go` for this exact buffered tool-call path.
+- Verification passed:
+  - `go test -tags=unit ./internal/service -run 'TestHandleResponsesBufferedStreamingResponse_ReplacesToolUsePlaceholderInput|TestHandleResponsesBufferedStreamingResponse_PreservesMessageStartCacheUsage|TestResolveGatewayGroup_AllowsResponsesBridgeForClaudeCodeOnlyGroup'`
+  - `go test ./internal/pkg/apicompat`
+- Commit `d3beb62` was pushed to `aptidus/sub2api` `main`; Railway production service `sub2api-app` deployed it successfully.
+- Live production QA passed against `https://sub2api-app-production.up.railway.app/v1/responses` using the local Sub2API key:
+  - plain `claude-opus-4-7` Responses request returned `ok`
+  - tool-call request returned a valid Responses `function_call` with clean JSON arguments
+  - tool-output continuation request translated back through Claude and returned the expected answer
+
 ## 2026-04-29 SpearAgent Codex Responses bridge for Claude Code-only groups
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`.
