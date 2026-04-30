@@ -350,7 +350,7 @@ type ResponsesStreamEvent struct {
 // MarshalJSON keeps the normal compact Responses SSE shape while still
 // emitting required zero-valued indexes for stream lifecycle events.
 func (e ResponsesStreamEvent) MarshalJSON() ([]byte, error) {
-	obj := map[string]interface{}{
+	obj := map[string]any{
 		"type": e.Type,
 	}
 
