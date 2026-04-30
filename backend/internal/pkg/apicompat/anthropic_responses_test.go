@@ -1353,6 +1353,30 @@ func TestResponsesToAnthropicRequest_CodexToolLoopAndReasoning(t *testing.T) {
 	assert.JSONEq(t, `"{\"sessions\":[\"claude\",\"codex\"]}"`, string(toolResultBlocks[0].Content))
 }
 
+func TestResponsesToAnthropicRequest_CodexTypedMessageContent(t *testing.T) {
+	maxTokens := 512
+	req := &ResponsesRequest{
+		Model:           "claude-opus-4-7",
+		MaxOutputTokens: &maxTokens,
+		Input: json.RawMessage(`[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect the repo."}]},
+			{"type":"message","content":[{"type":"input_text","text":"Continue with the same workspace."}]}
+		]`),
+	}
+
+	got, err := ResponsesToAnthropicRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 1)
+
+	var blocks []AnthropicContentBlock
+	require.NoError(t, json.Unmarshal(got.Messages[0].Content, &blocks))
+	require.Len(t, blocks, 2)
+	assert.Equal(t, "text", blocks[0].Type)
+	assert.Equal(t, "Inspect the repo.", blocks[0].Text)
+	assert.Equal(t, "text", blocks[1].Type)
+	assert.Equal(t, "Continue with the same workspace.", blocks[1].Text)
+}
+
 func TestResponsesToAnthropicRequest_WebSearchToolOmitsInputSchema(t *testing.T) {
 	maxTokens := 128
 	req := &ResponsesRequest{

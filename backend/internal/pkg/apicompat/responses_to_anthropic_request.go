@@ -161,7 +161,13 @@ func convertResponsesInputToAnthropic(inputRaw json.RawMessage) (json.RawMessage
 				Content: blockJSON,
 			})
 
-		case item.Role == "user":
+		case item.Type == "message" && item.Role == "system":
+			text := extractTextFromContent(item.Content)
+			if text != "" {
+				system, _ = json.Marshal(text)
+			}
+
+		case item.Role == "user" || (item.Type == "message" && item.Role == ""):
 			content, err := convertResponsesUserToAnthropicContent(item.Content)
 			if err != nil {
 				return nil, nil, err
@@ -184,9 +190,13 @@ func convertResponsesInputToAnthropic(inputRaw json.RawMessage) (json.RawMessage
 		default:
 			// Unknown role/type — attempt as user message
 			if item.Content != nil {
+				content, err := convertResponsesUserToAnthropicContent(item.Content)
+				if err != nil {
+					return nil, nil, err
+				}
 				messages = append(messages, AnthropicMessage{
 					Role:    "user",
-					Content: item.Content,
+					Content: content,
 				})
 			}
 		}
