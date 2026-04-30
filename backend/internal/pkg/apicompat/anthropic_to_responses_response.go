@@ -150,8 +150,9 @@ type AnthropicEventToResponsesState struct {
 	MessageContent  []ResponsesContentPart
 
 	// For function_call: track per-output info
-	CurrentCallID string
-	CurrentName   string
+	CurrentCallID    string
+	CurrentName      string
+	CurrentArguments string
 
 	// Usage from message_delta
 	InputTokens          int
@@ -302,6 +303,7 @@ func anthToResHandleContentBlockStart(evt *AnthropicStreamEvent, state *Anthropi
 		state.CurrentItemType = "function_call"
 		state.CurrentCallID = toResponsesCallID(evt.ContentBlock.ID)
 		state.CurrentName = evt.ContentBlock.Name
+		state.CurrentArguments = ""
 
 		events = append(events, makeResponsesEvent(state, "response.output_item.added", &ResponsesStreamEvent{
 			OutputIndex: state.OutputIndex,
@@ -351,6 +353,7 @@ func anthToResHandleContentBlockDelta(evt *AnthropicStreamEvent, state *Anthropi
 		if evt.Delta.PartialJSON == "" {
 			return nil
 		}
+		state.CurrentArguments += evt.Delta.PartialJSON
 		return []ResponsesStreamEvent{makeResponsesEvent(state, "response.function_call_arguments.delta", &ResponsesStreamEvent{
 			OutputIndex: state.OutputIndex,
 			Delta:       evt.Delta.PartialJSON,
@@ -389,6 +392,7 @@ func anthToResHandleContentBlockStop(evt *AnthropicStreamEvent, state *Anthropic
 				ItemID:      state.CurrentItemID,
 				CallID:      state.CurrentCallID,
 				Name:        state.CurrentName,
+				Arguments:   state.CurrentArguments,
 			}),
 		}
 		events = append(events, closeCurrentResponsesItem(state)...)
@@ -481,6 +485,7 @@ func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []Response
 	if itemType == "function_call" {
 		item.CallID = state.CurrentCallID
 		item.Name = state.CurrentName
+		item.Arguments = state.CurrentArguments
 	}
 
 	// Reset
@@ -488,6 +493,7 @@ func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []Response
 	state.CurrentItemID = ""
 	state.CurrentCallID = ""
 	state.CurrentName = ""
+	state.CurrentArguments = ""
 	state.OutputIndex++
 	state.ContentIndex = 0
 	state.ContentPartOpen = false

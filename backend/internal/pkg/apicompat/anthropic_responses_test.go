@@ -453,6 +453,49 @@ func TestResponsesStreamEventMarshalKeepsRequiredZeroIndexes(t *testing.T) {
 	assert.Contains(t, string(data), `"content_index":0`)
 }
 
+func TestAnthropicStreamingToolCallDoneIncludesArguments(t *testing.T) {
+	state := NewAnthropicEventToResponsesState()
+
+	AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type: "message_start",
+		Message: &AnthropicResponse{
+			ID:    "msg_tool_stream",
+			Model: "claude-opus-4-7",
+		},
+	}, state)
+
+	events := AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type: "content_block_start",
+		ContentBlock: &AnthropicContentBlock{
+			Type: "tool_use",
+			ID:   "toolu_123",
+			Name: "team_list_sessions",
+		},
+	}, state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "response.output_item.added", events[0].Type)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type:  "content_block_delta",
+		Delta: &AnthropicDelta{Type: "input_json_delta", PartialJSON: `{"active":`},
+	}, state)
+	require.Len(t, events, 1)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type:  "content_block_delta",
+		Delta: &AnthropicDelta{Type: "input_json_delta", PartialJSON: `true}`},
+	}, state)
+	require.Len(t, events, 1)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "content_block_stop"}, state)
+	require.Len(t, events, 2)
+	assert.Equal(t, "response.function_call_arguments.done", events[0].Type)
+	assert.Equal(t, `{"active":true}`, events[0].Arguments)
+	assert.Equal(t, "response.output_item.done", events[1].Type)
+	require.NotNil(t, events[1].Item)
+	assert.Equal(t, `{"active":true}`, events[1].Item.Arguments)
+}
+
 // ---------------------------------------------------------------------------
 // Streaming: ResponsesEventToAnthropicEvents tests
 // ---------------------------------------------------------------------------
