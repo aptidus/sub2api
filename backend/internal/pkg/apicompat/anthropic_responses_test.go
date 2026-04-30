@@ -366,6 +366,71 @@ func TestResponsesToAnthropic_EmptyOutput(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Streaming: AnthropicEventToResponsesEvents tests
+// ---------------------------------------------------------------------------
+
+func TestAnthropicStreamingTextEmitsResponsesContentPartLifecycle(t *testing.T) {
+	state := NewAnthropicEventToResponsesState()
+
+	events := AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type: "message_start",
+		Message: &AnthropicResponse{
+			ID:    "msg_1",
+			Model: "claude-opus-4-7",
+			Usage: AnthropicUsage{InputTokens: 8},
+		},
+	}, state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "response.created", events[0].Type)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type:         "content_block_start",
+		ContentBlock: &AnthropicContentBlock{Type: "text"},
+	}, state)
+	require.Len(t, events, 2)
+	assert.Equal(t, "response.output_item.added", events[0].Type)
+	assert.Equal(t, "message", events[0].Item.Type)
+	assert.Equal(t, "response.content_part.added", events[1].Type)
+	require.NotNil(t, events[1].Part)
+	assert.Equal(t, "output_text", events[1].Part.Type)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type:  "content_block_delta",
+		Delta: &AnthropicDelta{Type: "text_delta", Text: "Hello"},
+	}, state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "response.output_text.delta", events[0].Type)
+	assert.Equal(t, "Hello", events[0].Delta)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type:  "content_block_delta",
+		Delta: &AnthropicDelta{Type: "text_delta", Text: " world"},
+	}, state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "response.output_text.delta", events[0].Type)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "content_block_stop"}, state)
+	require.Len(t, events, 2)
+	assert.Equal(t, "response.output_text.done", events[0].Type)
+	assert.Equal(t, "Hello world", events[0].Text)
+	assert.Equal(t, "response.content_part.done", events[1].Type)
+	require.NotNil(t, events[1].Part)
+	assert.Equal(t, "Hello world", events[1].Part.Text)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type:  "message_delta",
+		Usage: &AnthropicUsage{OutputTokens: 3},
+	}, state)
+	assert.Empty(t, events)
+
+	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "message_stop"}, state)
+	require.Len(t, events, 2)
+	assert.Equal(t, "response.output_item.done", events[0].Type)
+	assert.Equal(t, "response.completed", events[1].Type)
+	assert.Equal(t, 11, events[1].Response.Usage.TotalTokens)
+}
+
+// ---------------------------------------------------------------------------
 // Streaming: ResponsesEventToAnthropicEvents tests
 // ---------------------------------------------------------------------------
 

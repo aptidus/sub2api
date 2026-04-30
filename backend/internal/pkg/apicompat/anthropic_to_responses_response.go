@@ -144,7 +144,9 @@ type AnthropicEventToResponsesState struct {
 	CurrentItemType string // "message" | "function_call" | "reasoning"
 
 	// For message output: accumulate text parts
-	ContentIndex int
+	ContentIndex    int
+	ContentPartOpen bool
+	CurrentText     string
 
 	// For function_call: track per-output info
 	CurrentCallID string
@@ -263,6 +265,8 @@ func anthToResHandleContentBlockStart(evt *AnthropicStreamEvent, state *Anthropi
 			state.CurrentItemID = generateItemID()
 			state.CurrentItemType = "message"
 			state.ContentIndex = 0
+			state.ContentPartOpen = false
+			state.CurrentText = ""
 
 			events = append(events, makeResponsesEvent(state, "response.output_item.added", &ResponsesStreamEvent{
 				OutputIndex: state.OutputIndex,
@@ -271,6 +275,19 @@ func anthToResHandleContentBlockStart(evt *AnthropicStreamEvent, state *Anthropi
 					ID:     state.CurrentItemID,
 					Role:   "assistant",
 					Status: "in_progress",
+				},
+			}))
+		}
+		if !state.ContentPartOpen {
+			state.ContentPartOpen = true
+			state.CurrentText = ""
+			events = append(events, makeResponsesEvent(state, "response.content_part.added", &ResponsesStreamEvent{
+				OutputIndex:  state.OutputIndex,
+				ContentIndex: state.ContentIndex,
+				ItemID:       state.CurrentItemID,
+				Part: &ResponsesContentPart{
+					Type: "output_text",
+					Text: "",
 				},
 			}))
 		}
@@ -309,6 +326,7 @@ func anthToResHandleContentBlockDelta(evt *AnthropicStreamEvent, state *Anthropi
 		if evt.Delta.Text == "" {
 			return nil
 		}
+		state.CurrentText += evt.Delta.Text
 		return []ResponsesStreamEvent{makeResponsesEvent(state, "response.output_text.delta", &ResponsesStreamEvent{
 			OutputIndex:  state.OutputIndex,
 			ContentIndex: state.ContentIndex,
@@ -375,14 +393,32 @@ func anthToResHandleContentBlockStop(evt *AnthropicStreamEvent, state *Anthropic
 		return events
 
 	case "message":
-		// Emit output_text.done (text block is done, but message item stays open for potential more blocks)
-		return []ResponsesStreamEvent{
+		// Emit output_text.done and content_part.done. The message item stays open for potential more blocks.
+		text := state.CurrentText
+		contentIndex := state.ContentIndex
+		events := []ResponsesStreamEvent{
 			makeResponsesEvent(state, "response.output_text.done", &ResponsesStreamEvent{
 				OutputIndex:  state.OutputIndex,
-				ContentIndex: state.ContentIndex,
+				ContentIndex: contentIndex,
 				ItemID:       state.CurrentItemID,
+				Text:         text,
 			}),
 		}
+		if state.ContentPartOpen {
+			events = append(events, makeResponsesEvent(state, "response.content_part.done", &ResponsesStreamEvent{
+				OutputIndex:  state.OutputIndex,
+				ContentIndex: contentIndex,
+				ItemID:       state.CurrentItemID,
+				Part: &ResponsesContentPart{
+					Type: "output_text",
+					Text: text,
+				},
+			}))
+			state.ContentPartOpen = false
+			state.CurrentText = ""
+			state.ContentIndex++
+		}
+		return events
 	}
 
 	return nil
@@ -437,6 +473,8 @@ func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []Response
 	state.CurrentName = ""
 	state.OutputIndex++
 	state.ContentIndex = 0
+	state.ContentPartOpen = false
+	state.CurrentText = ""
 
 	return []ResponsesStreamEvent{makeResponsesEvent(state, "response.output_item.done", &ResponsesStreamEvent{
 		OutputIndex: state.OutputIndex - 1, // Use the index before increment
