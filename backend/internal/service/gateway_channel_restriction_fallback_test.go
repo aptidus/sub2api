@@ -128,3 +128,33 @@ func TestSelectAccountWithLoadAwareness_UsesFallbackGroupForChannelRestriction(t
 	require.NotNil(t, result.Account)
 	require.Equal(t, int64(1), result.Account.ID)
 }
+
+func TestResolveGatewayGroup_AllowsResponsesBridgeForClaudeCodeOnlyGroup(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(10)
+	groupRepo := &mockGroupRepoForGateway{
+		groups: map[int64]*Group{
+			groupID: {
+				ID:             groupID,
+				Platform:       PlatformAnthropic,
+				Status:         StatusActive,
+				ClaudeCodeOnly: true,
+				Hydrated:       true,
+			},
+		},
+	}
+	svc := &GatewayService{groupRepo: groupRepo}
+
+	ctx := context.WithValue(context.Background(), ctxkey.Group, groupRepo.groups[groupID])
+	_, _, err := svc.resolveGatewayGroup(ctx, &groupID)
+	require.ErrorIs(t, err, ErrClaudeCodeOnly)
+
+	ctx = SetClaudeCodeClient(ctx, true)
+	group, resolvedID, err := svc.resolveGatewayGroup(ctx, &groupID)
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, resolvedID)
+	require.Equal(t, groupID, *resolvedID)
+	require.Equal(t, groupID, group.ID)
+}

@@ -1291,3 +1291,64 @@ func TestAnthropicToResponses_ToolWithNilSchema(t *testing.T) {
 	assert.JSONEq(t, `"object"`, string(params["type"]))
 	assert.JSONEq(t, `{}`, string(params["properties"]))
 }
+
+func TestResponsesToAnthropicRequest_CodexToolLoopAndReasoning(t *testing.T) {
+	maxTokens := 2048
+	req := &ResponsesRequest{
+		Model:           "claude-opus-4-7",
+		MaxOutputTokens: &maxTokens,
+		Stream:          true,
+		Input: json.RawMessage(`[
+			{"role":"system","content":"Use pass-by-file coordination."},
+			{"role":"user","content":[{"type":"input_text","text":"Inspect the repo."}]},
+			{"type":"function_call","call_id":"call_list","name":"list_sessions","arguments":"{\"active\":true}"},
+			{"type":"function_call_output","call_id":"call_list","output":"{\"sessions\":[\"claude\",\"codex\"]}"}
+		]`),
+		Tools: []ResponsesTool{{
+			Type:        "function",
+			Name:        "list_sessions",
+			Description: "List active SpearAgent sessions",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"active":{"type":"boolean"}}}`),
+		}},
+		ToolChoice: json.RawMessage(`"auto"`),
+		Reasoning:  &ResponsesReasoning{Effort: "xhigh"},
+	}
+
+	got, err := ResponsesToAnthropicRequest(req)
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude-opus-4-7", got.Model)
+	assert.Equal(t, 2048, got.MaxTokens)
+	assert.True(t, got.Stream)
+	assert.JSONEq(t, `"Use pass-by-file coordination."`, string(got.System))
+	require.Len(t, got.Tools, 1)
+	assert.Equal(t, "list_sessions", got.Tools[0].Name)
+	assert.JSONEq(t, `{"type":"auto"}`, string(got.ToolChoice))
+	require.NotNil(t, got.OutputConfig)
+	assert.Equal(t, "max", got.OutputConfig.Effort)
+	require.NotNil(t, got.Thinking)
+	assert.Equal(t, "enabled", got.Thinking.Type)
+	assert.Equal(t, 32768, got.Thinking.BudgetTokens)
+
+	require.Len(t, got.Messages, 3)
+	var userBlocks []AnthropicContentBlock
+	require.NoError(t, json.Unmarshal(got.Messages[0].Content, &userBlocks))
+	require.Len(t, userBlocks, 1)
+	assert.Equal(t, "text", userBlocks[0].Type)
+	assert.Equal(t, "Inspect the repo.", userBlocks[0].Text)
+
+	var toolUseBlocks []AnthropicContentBlock
+	require.NoError(t, json.Unmarshal(got.Messages[1].Content, &toolUseBlocks))
+	require.Len(t, toolUseBlocks, 1)
+	assert.Equal(t, "tool_use", toolUseBlocks[0].Type)
+	assert.Equal(t, "call_list", toolUseBlocks[0].ID)
+	assert.Equal(t, "list_sessions", toolUseBlocks[0].Name)
+	assert.JSONEq(t, `{"active":true}`, string(toolUseBlocks[0].Input))
+
+	var toolResultBlocks []AnthropicContentBlock
+	require.NoError(t, json.Unmarshal(got.Messages[2].Content, &toolResultBlocks))
+	require.Len(t, toolResultBlocks, 1)
+	assert.Equal(t, "tool_result", toolResultBlocks[0].Type)
+	assert.Equal(t, "call_list", toolResultBlocks[0].ToolUseID)
+	assert.JSONEq(t, `"{\"sessions\":[\"claude\",\"codex\"]}"`, string(toolResultBlocks[0].Content))
+}

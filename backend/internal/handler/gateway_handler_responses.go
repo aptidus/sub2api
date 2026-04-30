@@ -94,17 +94,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
-	// Claude Code only restriction:
-	// /v1/responses is never a Claude Code endpoint.
-	// When claude_code_only is enabled, this endpoint is rejected.
-	// The existing service-layer checkClaudeCodeRestriction handles degradation
-	// to fallback groups when the Forward path calls SelectAccountForModelWithExclusions.
-	// Here we just reject at handler level since /v1/responses clients can't be Claude Code.
-	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		h.responsesErrorResponse(c, http.StatusForbidden, "permission_error",
-			"This group is restricted to Claude Code clients (/v1/messages only)")
-		return
-	}
+	// SpearAgent/Codex reaches Claude accounts through the Responses protocol, then
+	// ForwardAsResponses translates the payload to Anthropic /v1/messages and applies
+	// Claude Code mimicry before the upstream request. Mark this request as
+	// Claude-Code-compatible so claude_code_only groups can select their Claude Code
+	// accounts instead of being rejected or degraded to a fallback group.
+	c.Request = c.Request.WithContext(service.SetClaudeCodeClient(c.Request.Context(), true))
 
 	// Error passthrough binding
 	if h.errorPassthroughService != nil {
