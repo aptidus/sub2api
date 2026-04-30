@@ -391,6 +391,8 @@ func TestAnthropicStreamingTextEmitsResponsesContentPartLifecycle(t *testing.T) 
 	assert.Equal(t, "response.output_item.added", events[0].Type)
 	assert.Equal(t, "message", events[0].Item.Type)
 	assert.Equal(t, "response.content_part.added", events[1].Type)
+	assert.Equal(t, 0, events[1].OutputIndex)
+	assert.Equal(t, 0, events[1].ContentIndex)
 	require.NotNil(t, events[1].Part)
 	assert.Equal(t, "output_text", events[1].Part.Type)
 
@@ -400,6 +402,8 @@ func TestAnthropicStreamingTextEmitsResponsesContentPartLifecycle(t *testing.T) 
 	}, state)
 	require.Len(t, events, 1)
 	assert.Equal(t, "response.output_text.delta", events[0].Type)
+	assert.Equal(t, 0, events[0].OutputIndex)
+	assert.Equal(t, 0, events[0].ContentIndex)
 	assert.Equal(t, "Hello", events[0].Delta)
 
 	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
@@ -426,8 +430,27 @@ func TestAnthropicStreamingTextEmitsResponsesContentPartLifecycle(t *testing.T) 
 	events = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "message_stop"}, state)
 	require.Len(t, events, 2)
 	assert.Equal(t, "response.output_item.done", events[0].Type)
+	require.NotNil(t, events[0].Item)
+	assert.Equal(t, "assistant", events[0].Item.Role)
+	require.Len(t, events[0].Item.Content, 1)
+	assert.Equal(t, "Hello world", events[0].Item.Content[0].Text)
 	assert.Equal(t, "response.completed", events[1].Type)
 	assert.Equal(t, 11, events[1].Response.Usage.TotalTokens)
+}
+
+func TestResponsesStreamEventMarshalKeepsRequiredZeroIndexes(t *testing.T) {
+	evt := ResponsesStreamEvent{
+		Type:         "response.output_text.delta",
+		OutputIndex:  0,
+		ContentIndex: 0,
+		Delta:        "hi",
+		ItemID:       "item_1",
+	}
+
+	data, err := json.Marshal(evt)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"output_index":0`)
+	assert.Contains(t, string(data), `"content_index":0`)
 }
 
 // ---------------------------------------------------------------------------

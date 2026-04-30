@@ -147,6 +147,7 @@ type AnthropicEventToResponsesState struct {
 	ContentIndex    int
 	ContentPartOpen bool
 	CurrentText     string
+	MessageContent  []ResponsesContentPart
 
 	// For function_call: track per-output info
 	CurrentCallID string
@@ -267,6 +268,7 @@ func anthToResHandleContentBlockStart(evt *AnthropicStreamEvent, state *Anthropi
 			state.ContentIndex = 0
 			state.ContentPartOpen = false
 			state.CurrentText = ""
+			state.MessageContent = nil
 
 			events = append(events, makeResponsesEvent(state, "response.output_item.added", &ResponsesStreamEvent{
 				OutputIndex: state.OutputIndex,
@@ -405,16 +407,18 @@ func anthToResHandleContentBlockStop(evt *AnthropicStreamEvent, state *Anthropic
 			}),
 		}
 		if state.ContentPartOpen {
+			part := ResponsesContentPart{
+				Type: "output_text",
+				Text: text,
+			}
 			events = append(events, makeResponsesEvent(state, "response.content_part.done", &ResponsesStreamEvent{
 				OutputIndex:  state.OutputIndex,
 				ContentIndex: contentIndex,
 				ItemID:       state.CurrentItemID,
-				Part: &ResponsesContentPart{
-					Type: "output_text",
-					Text: text,
-				},
+				Part:         &part,
 			}))
 			state.ContentPartOpen = false
+			state.MessageContent = append(state.MessageContent, part)
 			state.CurrentText = ""
 			state.ContentIndex++
 		}
@@ -465,6 +469,19 @@ func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []Response
 
 	itemType := state.CurrentItemType
 	itemID := state.CurrentItemID
+	item := &ResponsesOutput{
+		Type:   itemType,
+		ID:     itemID,
+		Status: "completed",
+	}
+	if itemType == "message" {
+		item.Role = "assistant"
+		item.Content = state.MessageContent
+	}
+	if itemType == "function_call" {
+		item.CallID = state.CurrentCallID
+		item.Name = state.CurrentName
+	}
 
 	// Reset
 	state.CurrentItemType = ""
@@ -475,14 +492,11 @@ func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []Response
 	state.ContentIndex = 0
 	state.ContentPartOpen = false
 	state.CurrentText = ""
+	state.MessageContent = nil
 
 	return []ResponsesStreamEvent{makeResponsesEvent(state, "response.output_item.done", &ResponsesStreamEvent{
 		OutputIndex: state.OutputIndex - 1, // Use the index before increment
-		Item: &ResponsesOutput{
-			Type:   itemType,
-			ID:     itemID,
-			Status: "completed",
-		},
+		Item:        item,
 	})}
 }
 

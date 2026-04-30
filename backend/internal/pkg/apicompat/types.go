@@ -347,6 +347,81 @@ type ResponsesStreamEvent struct {
 	SequenceNumber int `json:"sequence_number,omitempty"`
 }
 
+// MarshalJSON keeps the normal compact Responses SSE shape while still
+// emitting required zero-valued indexes for stream lifecycle events.
+func (e ResponsesStreamEvent) MarshalJSON() ([]byte, error) {
+	obj := map[string]interface{}{
+		"type": e.Type,
+	}
+
+	if e.Response != nil {
+		obj["response"] = e.Response
+	}
+	if e.Item != nil {
+		obj["item"] = e.Item
+	}
+	if e.Part != nil {
+		obj["part"] = e.Part
+	}
+	if e.Delta != "" {
+		obj["delta"] = e.Delta
+	}
+	if e.Text != "" {
+		obj["text"] = e.Text
+	}
+	if e.ItemID != "" {
+		obj["item_id"] = e.ItemID
+	}
+	if e.CallID != "" {
+		obj["call_id"] = e.CallID
+	}
+	if e.Name != "" {
+		obj["name"] = e.Name
+	}
+	if e.Arguments != "" {
+		obj["arguments"] = e.Arguments
+	}
+	if e.Code != "" {
+		obj["code"] = e.Code
+	}
+	if e.Param != "" {
+		obj["param"] = e.Param
+	}
+	if e.SequenceNumber != 0 {
+		obj["sequence_number"] = e.SequenceNumber
+	}
+
+	switch e.Type {
+	case "response.output_item.added",
+		"response.output_item.done",
+		"response.content_part.added",
+		"response.content_part.done",
+		"response.output_text.delta",
+		"response.output_text.done",
+		"response.function_call_arguments.delta",
+		"response.function_call_arguments.done",
+		"response.reasoning_summary_text.delta",
+		"response.reasoning_summary_text.done":
+		obj["output_index"] = e.OutputIndex
+	}
+
+	switch e.Type {
+	case "response.content_part.added",
+		"response.content_part.done",
+		"response.output_text.delta",
+		"response.output_text.done":
+		obj["content_index"] = e.ContentIndex
+	}
+
+	switch e.Type {
+	case "response.reasoning_summary_text.delta",
+		"response.reasoning_summary_text.done":
+		obj["summary_index"] = e.SummaryIndex
+	}
+
+	return json.Marshal(obj)
+}
+
 // ---------------------------------------------------------------------------
 // OpenAI Chat Completions API types
 // ---------------------------------------------------------------------------
