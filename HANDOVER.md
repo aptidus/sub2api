@@ -1,5 +1,30 @@
 # Sub2API Handover
 
+## 2026-04-30 Stripe-only revenue/profit reporting
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`
+- Changed admin money reporting so manually created/test-credit accounts no longer count as customer revenue or profit.
+- New rule:
+  - Traffic stats still count everyone: requests, tokens, active users, latency, raw usage logs.
+  - Customer revenue/profit now only counts usage from non-admin, non-internal users/keys after that user has a successful Stripe-funded payment order.
+  - Admin, explicitly internal, manually credited, test-credit, and pre-Stripe-payment usage now lands in the internal/test cost bucket instead of customer profit.
+- Updated the admin dashboard labels and top token money snippets to show Stripe-funded charged usage and Stripe-funded upstream cost, not raw manual-credit usage.
+- Updated the user spending ranking query to rank only Stripe-funded customer spend, so test users with manually assigned `$1000` balances do not appear as revenue leaders.
+- Tightened the integration-test fixture helper so `internal_usage` is actually written when tests create users.
+
+### Verification
+
+- Ran:
+  - `go test -tags=integration ./internal/repository -run TestUsageLogRepoSuite/TestDashboardProfitCountsOnlyStripeFundedUsage -count=1`
+  - `go test -tags=unit ./internal/repository ./internal/handler/admin ./internal/service -run 'TestUsageLogRepository|TestDashboard|TestGetDashboard|TestPayment|TestAdminService_AdminUpdateAPIKeyInternalUsage' -count=1`
+  - `go test ./...` from `backend`
+  - `pnpm --dir frontend exec vue-tsc --noEmit`
+  - `pnpm --dir frontend exec vitest run src/views/admin/__tests__/DashboardView.spec.ts src/components/charts/__tests__/ModelDistributionChart.spec.ts`
+  - `pnpm --dir frontend build`
+  - `git diff --check`
+- Result: passed.
+- Frontend build still emits existing Vite dynamic-import/chunk-size warnings and the existing Node `DEP0190` warning; these are warnings, not failures.
+
 ## 2026-04-30 GitHub Node 20 action warning cleanup
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`

@@ -40,7 +40,8 @@ func mustCreateUser(t *testing.T, client *dbent.Client, u *service.User) *servic
 		SetBalance(u.Balance).
 		SetConcurrency(u.Concurrency).
 		SetUsername(u.Username).
-		SetNotes(u.Notes)
+		SetNotes(u.Notes).
+		SetInternalUsage(u.InternalUsage)
 	if !u.CreatedAt.IsZero() {
 		create.SetCreatedAt(u.CreatedAt)
 	}

@@ -1705,78 +1705,95 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 
 func (r *usageLogRepository) fillDashboardProfitStatsFromUsageLogs(ctx context.Context, stats *DashboardStats, totalStartUTC, totalEndUTC, todayStartUTC, todayEndUTC time.Time, allTime bool) error {
 	query := `
-		WITH scoped AS (
+		WITH stripe_paid_users AS (
+			SELECT user_id, MIN(paid_at) AS first_stripe_paid_at
+			FROM payment_orders
+			WHERE status IN ('PAID', 'RECHARGING', 'COMPLETED')
+				AND paid_at IS NOT NULL
+				AND (
+					LOWER(COALESCE(provider_key, '')) = 'stripe'
+					OR LOWER(COALESCE(payment_type, '')) IN ('stripe', 'card', 'link')
+					OR LOWER(COALESCE(provider_snapshot->>'provider_key', '')) = 'stripe'
+				)
+			GROUP BY user_id
+		),
+		scoped AS (
 			SELECT
 				ul.created_at,
 				ul.actual_cost,
 				COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1) AS account_cost,
-				COALESCE(u.role, '') = $6
-					OR COALESCE(u.internal_usage, FALSE)
-					OR COALESCE(ak.internal_usage, FALSE) AS is_internal
+				(
+					COALESCE(u.role, '') <> $6
+					AND NOT COALESCE(u.internal_usage, FALSE)
+					AND NOT COALESCE(ak.internal_usage, FALSE)
+					AND spu.first_stripe_paid_at IS NOT NULL
+					AND ul.created_at >= spu.first_stripe_paid_at
+				) AS is_stripe_customer_revenue
 			FROM usage_logs ul
 			LEFT JOIN users u ON u.id = ul.user_id
 			LEFT JOIN api_keys ak ON ak.id = ul.api_key_id
+			LEFT JOIN stripe_paid_users spu ON spu.user_id = ul.user_id
 			WHERE ($5::boolean OR ul.created_at >= LEAST($1::timestamptz, $3::timestamptz))
 				AND ul.created_at < GREATEST($2::timestamptz, $4::timestamptz)
 		)
 		SELECT
 			COUNT(*) FILTER (
-				WHERE NOT is_internal
+				WHERE is_stripe_customer_revenue
 					AND ($5::boolean OR created_at >= $1::timestamptz)
 					AND created_at < $2::timestamptz
 			) AS total_customer_requests,
 			COALESCE(SUM(actual_cost) FILTER (
-				WHERE NOT is_internal
+				WHERE is_stripe_customer_revenue
 					AND ($5::boolean OR created_at >= $1::timestamptz)
 					AND created_at < $2::timestamptz
 			), 0) AS total_customer_actual_cost,
 			COALESCE(SUM(account_cost) FILTER (
-				WHERE NOT is_internal
+				WHERE is_stripe_customer_revenue
 					AND ($5::boolean OR created_at >= $1::timestamptz)
 					AND created_at < $2::timestamptz
 			), 0) AS total_customer_account_cost,
 			COALESCE(SUM(actual_cost - account_cost) FILTER (
-				WHERE NOT is_internal
+				WHERE is_stripe_customer_revenue
 					AND ($5::boolean OR created_at >= $1::timestamptz)
 					AND created_at < $2::timestamptz
 			), 0) AS total_customer_profit,
 			COUNT(*) FILTER (
-				WHERE is_internal
+				WHERE NOT is_stripe_customer_revenue
 					AND ($5::boolean OR created_at >= $1::timestamptz)
 					AND created_at < $2::timestamptz
 			) AS total_internal_requests,
 			COALESCE(SUM(account_cost) FILTER (
-				WHERE is_internal
+				WHERE NOT is_stripe_customer_revenue
 					AND ($5::boolean OR created_at >= $1::timestamptz)
 					AND created_at < $2::timestamptz
 			), 0) AS total_internal_account_cost,
 			COUNT(*) FILTER (
-				WHERE NOT is_internal
+				WHERE is_stripe_customer_revenue
 					AND created_at >= $3::timestamptz
 					AND created_at < $4::timestamptz
 			) AS today_customer_requests,
 			COALESCE(SUM(actual_cost) FILTER (
-				WHERE NOT is_internal
+				WHERE is_stripe_customer_revenue
 					AND created_at >= $3::timestamptz
 					AND created_at < $4::timestamptz
 			), 0) AS today_customer_actual_cost,
 			COALESCE(SUM(account_cost) FILTER (
-				WHERE NOT is_internal
+				WHERE is_stripe_customer_revenue
 					AND created_at >= $3::timestamptz
 					AND created_at < $4::timestamptz
 			), 0) AS today_customer_account_cost,
 			COALESCE(SUM(actual_cost - account_cost) FILTER (
-				WHERE NOT is_internal
+				WHERE is_stripe_customer_revenue
 					AND created_at >= $3::timestamptz
 					AND created_at < $4::timestamptz
 			), 0) AS today_customer_profit,
 			COUNT(*) FILTER (
-				WHERE is_internal
+				WHERE NOT is_stripe_customer_revenue
 					AND created_at >= $3::timestamptz
 					AND created_at < $4::timestamptz
 			) AS today_internal_requests,
 			COALESCE(SUM(account_cost) FILTER (
-				WHERE is_internal
+				WHERE NOT is_stripe_customer_revenue
 					AND created_at >= $3::timestamptz
 					AND created_at < $4::timestamptz
 			), 0) AS today_internal_account_cost
@@ -2381,7 +2398,19 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 	}
 
 	query := `
-		WITH user_spend AS (
+		WITH stripe_paid_users AS (
+			SELECT user_id, MIN(paid_at) AS first_stripe_paid_at
+			FROM payment_orders
+			WHERE status IN ('PAID', 'RECHARGING', 'COMPLETED')
+				AND paid_at IS NOT NULL
+				AND (
+					LOWER(COALESCE(provider_key, '')) = 'stripe'
+					OR LOWER(COALESCE(payment_type, '')) IN ('stripe', 'card', 'link')
+					OR LOWER(COALESCE(provider_snapshot->>'provider_key', '')) = 'stripe'
+				)
+			GROUP BY user_id
+		),
+		user_spend AS (
 			SELECT
 				u.user_id,
 				COALESCE(us.email, '') as email,
@@ -2390,7 +2419,13 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 				COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens
 			FROM usage_logs u
 			LEFT JOIN users us ON u.user_id = us.id
+			LEFT JOIN api_keys ak ON ak.id = u.api_key_id
+			JOIN stripe_paid_users spu ON spu.user_id = u.user_id
 			WHERE u.created_at >= $1 AND u.created_at < $2
+				AND u.created_at >= spu.first_stripe_paid_at
+				AND COALESCE(us.role, '') <> $4
+				AND NOT COALESCE(us.internal_usage, FALSE)
+				AND NOT COALESCE(ak.internal_usage, FALSE)
 			GROUP BY u.user_id, us.email
 		),
 		ranked AS (
@@ -2420,7 +2455,7 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 		ORDER BY actual_cost DESC, tokens DESC, user_id ASC
 	`
 
-	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit)
+	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit, service.RoleAdmin)
 	if err != nil {
 		return nil, err
 	}

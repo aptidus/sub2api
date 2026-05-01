@@ -64,6 +64,30 @@ func (s *UsageLogRepoSuite) createUsageLog(user *service.User, apiKey *service.A
 	return log
 }
 
+func (s *UsageLogRepoSuite) createStripePaymentOrder(user *service.User, paidAt time.Time) {
+	_, err := s.tx.ExecContext(s.ctx, `
+		INSERT INTO payment_orders (
+			user_id, user_email, user_name, amount, pay_amount, fee_rate, recharge_code,
+			out_trade_no, payment_type, payment_trade_no, order_type, provider_key,
+			status, expires_at, paid_at, completed_at, client_ip, src_host, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, 10.00, 10.00, 0, $4,
+			$5, 'stripe', $6, 'balance', 'stripe',
+			'COMPLETED', $7, $8, $8, '127.0.0.1', 'test.local', $8, $8
+		)
+	`,
+		user.ID,
+		user.Email,
+		user.Username,
+		"rc-"+uuid.NewString(),
+		"sub2api-test-"+uuid.NewString(),
+		"pi_test_"+uuid.NewString(),
+		paidAt.Add(15*time.Minute),
+		paidAt,
+	)
+	s.Require().NoError(err)
+}
+
 // --- Create / GetByID ---
 
 func (s *UsageLogRepoSuite) TestCreate() {
@@ -839,6 +863,48 @@ func (s *UsageLogRepoSuite) TestDashboardStatsWithRange_Fallback() {
 	// account_cost = COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) = total_cost
 	s.Require().Equal(1.5, stats.TotalAccountCost)
 	s.Require().InEpsilon(150.0, stats.AverageDurationMs, 0.0001)
+}
+
+func (s *UsageLogRepoSuite) TestDashboardProfitCountsOnlyStripeFundedUsage() {
+	now := time.Now().UTC().Truncate(time.Second)
+	rangeStart := now.Add(-3 * time.Hour)
+	rangeEnd := now.Add(1 * time.Hour)
+	paidAt := now.Add(-1 * time.Hour)
+
+	manualUser := mustCreateUser(s.T(), s.client, &service.User{Email: "manual-credit@test.com"})
+	stripeUser := mustCreateUser(s.T(), s.client, &service.User{Email: "stripe-paid@test.com"})
+	internalUser := mustCreateUser(s.T(), s.client, &service.User{Email: "internal-paid@test.com", InternalUsage: true})
+	manualKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: manualUser.ID, Key: "sk-manual-credit", Name: "manual"})
+	stripeKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: stripeUser.ID, Key: "sk-stripe-paid", Name: "stripe"})
+	internalKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: internalUser.ID, Key: "sk-internal-paid", Name: "internal"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-profit-stripe-only"})
+
+	s.createStripePaymentOrder(stripeUser, paidAt)
+	s.createStripePaymentOrder(internalUser, paidAt)
+
+	s.createUsageLog(manualUser, manualKey, account, 10, 10, 1.0, now.Add(-30*time.Minute))
+	s.createUsageLog(stripeUser, stripeKey, account, 20, 10, 2.0, paidAt.Add(-5*time.Minute))
+	s.createUsageLog(stripeUser, stripeKey, account, 30, 10, 3.0, paidAt.Add(5*time.Minute))
+	s.createUsageLog(internalUser, internalKey, account, 40, 10, 4.0, paidAt.Add(10*time.Minute))
+
+	stats, err := s.repo.GetDashboardStatsWithRange(s.ctx, rangeStart, rangeEnd)
+	s.Require().NoError(err)
+
+	s.Require().Equal(int64(4), stats.TotalRequests)
+	s.Require().Equal(int64(1), stats.TotalCustomerRequests)
+	s.Require().Equal(3.0, stats.TotalCustomerActualCost)
+	s.Require().Equal(3.0, stats.TotalCustomerAccountCost)
+	s.Require().Equal(0.0, stats.TotalCustomerProfit)
+	s.Require().Equal(int64(3), stats.TotalInternalRequests)
+	s.Require().Equal(7.0, stats.TotalInternalAccountCost)
+
+	ranking, err := s.repo.GetUserSpendingRanking(s.ctx, rangeStart, rangeEnd, 10)
+	s.Require().NoError(err)
+	s.Require().Len(ranking.Ranking, 1)
+	s.Require().Equal(stripeUser.ID, ranking.Ranking[0].UserID)
+	s.Require().Equal(3.0, ranking.Ranking[0].ActualCost)
+	s.Require().Equal(int64(1), ranking.TotalRequests)
+	s.Require().Equal(int64(40), ranking.TotalTokens)
 }
 
 // --- GetUserDashboardStats ---
