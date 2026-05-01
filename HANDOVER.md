@@ -238,7 +238,8 @@
 - Deployment:
   - Commit `febb5c42` was pushed to `aptidus/sub2api` `main`; Railway deployment `140f35ce-b643-4f32-9467-dc9c1f00c6bb` succeeded.
   - Live QA after `febb5c42`: `POST /v1/messages` with `model=claude-sonnet-4-6[1m]` returned HTTP 200 and `ok`.
-  - A second follow-up commit is required for the pricing-normalization log issue discovered during live QA.
+  - Follow-up commit `ad5c0fcf` was pushed; Railway deployment `371e707d-79cc-45ca-8b52-c3828bbfc7b5` succeeded.
+  - Final live QA after `ad5c0fcf`: `POST /v1/messages` with `model=claude-sonnet-4-6[1m]` returned HTTP 200 and `ok`; recent logs showed the request completed with status 200 and no `[Pricing] Fuzzy matched claude-sonnet-4-6[1m]` line.
 
 ## 2026-04-30 Profitability setup inputs needed
 
