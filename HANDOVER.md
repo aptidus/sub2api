@@ -1,5 +1,32 @@
 # Sub2API Handover
 
+## 2026-05-01 Official upstream 0.1.121 review
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`.
+- Checked official upstream `Wei-Shaw/sub2api`:
+  - official `upstream/main` is at `0.1.121`
+  - local fork already had almost all `v0.1.119 -> v0.1.121` upstream code from earlier sync work
+  - a blind merge is unsafe because this fork was imported as a deploy snapshot and does not share normal Git ancestry with upstream; direct `HEAD..upstream/main` looks like thousands of deletes that would remove our custom commercial/auth/API-doc changes.
+- Applied the upstream delta safely as a patch and resolved the real differences:
+  - preserved our redacted/debug sticky-session logs so raw metadata/session IDs are not written at info level
+  - preserved our Anthropic model normalization behavior that fixed Claude alias / `[1m]` routing compatibility
+  - adopted upstream's restored table page-size persistence behavior and updated the stale local test expectation
+- Net code diff after resolution is intentionally small:
+  - `frontend/src/composables/usePersistedPageSize.ts`
+  - `frontend/src/composables/__tests__/usePersistedPageSize.spec.ts`
+  - `backend/internal/service/gateway_service.go` ordering only around model mapping
+
+### Verification
+
+- Ran:
+  - `go test ./internal/service ./internal/handler/admin ./internal/pkg/apicompat ./internal/pkg/httputil`
+  - `go test ./...` from `backend`
+  - `pnpm --dir frontend exec vitest run`
+  - `go build ./cmd/server`
+  - `pnpm --dir frontend build`
+  - `git diff --check`
+- Result: passed. Frontend build still emits existing Vite dynamic-import/chunk-size warnings only.
+
 ## 2026-04-30 Commercial billing hardening
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`
@@ -213,6 +240,16 @@
   - `pnpm --dir frontend test:run`: passed, 91 files / 545 tests.
   - `pnpm --dir frontend build`: passed, with existing Vite chunk/dynamic-import warnings only.
   - `git diff --check`: passed.
+
+## 2026-04-30 Hugo admin promotion
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`, Railway production service `sub2api-app`.
+- User requested `hugochougt@gmail.com` be made an admin.
+- Production DB was updated from inside the Railway app container because local access cannot resolve `postgres.railway.internal`.
+- Result:
+  - User row `id=3`, `hugochougt@gmail.com` is now `role=admin`, `internal_usage=true`, `status=active`.
+  - Duplicate user row `id=6`, `hugochougt@gmail.com` is also now `role=admin`, `internal_usage=true`, `status=active`.
+- Note: because this was a direct DB update, any already-open Hugo dashboard session may need logout/login to pick up the admin role immediately.
 
 ## 2026-04-30 Claude Code `[1m]` model suffix fix
 
