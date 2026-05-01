@@ -128,6 +128,7 @@ func (s *PaymentConfigService) CreatePlan(ctx context.Context, req CreatePlanReq
 		SetGroupID(req.GroupID).SetName(req.Name).SetDescription(req.Description).
 		SetPrice(req.Price).SetValidityDays(req.ValidityDays).SetValidityUnit(req.ValidityUnit).
 		SetFeatures(req.Features).SetProductName(req.ProductName).
+		SetStripePriceID(strings.TrimSpace(req.StripePriceID)).
 		SetForSale(req.ForSale).SetSortOrder(req.SortOrder)
 	if req.OriginalPrice != nil {
 		b.SetOriginalPrice(*req.OriginalPrice)
@@ -169,6 +170,9 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 	}
 	if req.ProductName != nil {
 		u.SetProductName(*req.ProductName)
+	}
+	if req.StripePriceID != nil {
+		u.SetStripePriceID(strings.TrimSpace(*req.StripePriceID))
 	}
 	if req.ForSale != nil {
 		u.SetForSale(*req.ForSale)

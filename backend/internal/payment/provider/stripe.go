@@ -14,9 +14,12 @@ import (
 
 // Stripe constants.
 const (
-	stripeCurrency            = "cny"
-	stripeEventPaymentSuccess = "payment_intent.succeeded"
-	stripeEventPaymentFailed  = "payment_intent.payment_failed"
+	stripeCurrency                      = "cny"
+	stripeEventPaymentSuccess           = "payment_intent.succeeded"
+	stripeEventPaymentFailed            = "payment_intent.payment_failed"
+	stripeEventCheckoutSessionCompleted = "checkout.session.completed"
+	stripeEventInvoicePaid              = "invoice.paid"
+	stripeEventInvoicePaymentFailed     = "invoice.payment_failed"
 )
 
 // Stripe implements the payment.CancelableProvider interface for Stripe payments.
@@ -78,6 +81,10 @@ var stripePaymentMethodTypes = map[string][]string{
 func (s *Stripe) CreatePayment(ctx context.Context, req payment.CreatePaymentRequest) (*payment.CreatePaymentResponse, error) {
 	s.ensureInit()
 
+	if strings.EqualFold(strings.TrimSpace(req.OrderType), payment.OrderTypeSubscription) && strings.TrimSpace(req.StripePriceID) != "" {
+		return s.createSubscriptionCheckout(ctx, req)
+	}
+
 	amountInCents, err := payment.YuanToFen(req.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("stripe create payment: %w", err)
@@ -119,6 +126,57 @@ func (s *Stripe) CreatePayment(ctx context.Context, req payment.CreatePaymentReq
 	return &payment.CreatePaymentResponse{
 		TradeNo:      pi.ID,
 		ClientSecret: pi.ClientSecret,
+	}, nil
+}
+
+func (s *Stripe) createSubscriptionCheckout(ctx context.Context, req payment.CreatePaymentRequest) (*payment.CreatePaymentResponse, error) {
+	metadata := map[string]string{
+		"orderId":   req.OrderID,
+		"orderType": payment.OrderTypeSubscription,
+	}
+	if req.PlanID > 0 {
+		metadata["planId"] = fmt.Sprintf("%d", req.PlanID)
+	}
+
+	successURL := strings.TrimSpace(req.ReturnURL)
+	cancelURL := strings.TrimSpace(req.ReturnURL)
+	if successURL == "" {
+		successURL = strings.TrimSpace(s.config["successUrl"])
+	}
+	if cancelURL == "" {
+		cancelURL = strings.TrimSpace(s.config["cancelUrl"])
+	}
+
+	params := &stripe.CheckoutSessionCreateParams{
+		Mode:              stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+		ClientReferenceID: stripe.String(req.OrderID),
+		LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
+			{
+				Price:    stripe.String(strings.TrimSpace(req.StripePriceID)),
+				Quantity: stripe.Int64(1),
+			},
+		},
+		Metadata: metadata,
+		SubscriptionData: &stripe.CheckoutSessionCreateSubscriptionDataParams{
+			Metadata: metadata,
+		},
+	}
+	if successURL != "" {
+		params.SuccessURL = stripe.String(successURL)
+	}
+	if cancelURL != "" {
+		params.CancelURL = stripe.String(cancelURL)
+	}
+	params.SetIdempotencyKey(fmt.Sprintf("checkout-sub-%s", req.OrderID))
+	params.Context = ctx
+
+	session, err := s.sc.V1CheckoutSessions.Create(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("stripe create subscription checkout: %w", err)
+	}
+	return &payment.CreatePaymentResponse{
+		TradeNo: session.ID,
+		PayURL:  session.URL,
 	}, nil
 }
 
@@ -170,9 +228,75 @@ func (s *Stripe) VerifyNotification(_ context.Context, rawBody string, headers m
 		return parseStripePaymentIntent(&event, payment.ProviderStatusSuccess, rawBody)
 	case stripeEventPaymentFailed:
 		return parseStripePaymentIntent(&event, payment.ProviderStatusFailed, rawBody)
+	case stripeEventCheckoutSessionCompleted:
+		return parseStripeCheckoutSession(&event, payment.ProviderStatusSuccess, rawBody)
+	case stripeEventInvoicePaid:
+		return parseStripeInvoice(&event, payment.ProviderStatusSuccess, rawBody)
+	case stripeEventInvoicePaymentFailed:
+		return parseStripeInvoice(&event, payment.ProviderStatusFailed, rawBody)
 	}
 
 	return nil, nil
+}
+
+func parseStripeCheckoutSession(event *stripe.Event, status string, rawBody string) (*payment.PaymentNotification, error) {
+	var session stripe.CheckoutSession
+	if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
+		return nil, fmt.Errorf("stripe parse checkout.session: %w", err)
+	}
+	orderID := session.Metadata["orderId"]
+	if strings.TrimSpace(orderID) == "" {
+		orderID = session.ClientReferenceID
+	}
+	if strings.TrimSpace(orderID) == "" {
+		return nil, nil
+	}
+	return &payment.PaymentNotification{
+		TradeNo:  session.ID,
+		OrderID:  orderID,
+		Amount:   payment.FenToYuan(session.AmountTotal),
+		Status:   status,
+		RawData:  rawBody,
+		Metadata: cloneStripeStringMap(session.Metadata),
+	}, nil
+}
+
+func parseStripeInvoice(event *stripe.Event, status string, rawBody string) (*payment.PaymentNotification, error) {
+	var invoice stripe.Invoice
+	if err := json.Unmarshal(event.Data.Raw, &invoice); err != nil {
+		return nil, fmt.Errorf("stripe parse invoice: %w", err)
+	}
+	metadata := cloneStripeStringMap(invoice.Metadata)
+	if invoice.Parent != nil && invoice.Parent.SubscriptionDetails != nil {
+		for k, v := range invoice.Parent.SubscriptionDetails.Metadata {
+			if _, exists := metadata[k]; !exists {
+				metadata[k] = v
+			}
+		}
+	}
+	orderID := metadata["orderId"]
+	if strings.TrimSpace(orderID) == "" {
+		return nil, nil
+	}
+	return &payment.PaymentNotification{
+		TradeNo:  invoice.ID,
+		OrderID:  orderID,
+		Amount:   payment.FenToYuan(invoice.AmountPaid),
+		Status:   status,
+		RawData:  rawBody,
+		Metadata: metadata,
+	}, nil
+}
+
+func cloneStripeStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func parseStripePaymentIntent(event *stripe.Event, status string, rawBody string) (*payment.PaymentNotification, error) {

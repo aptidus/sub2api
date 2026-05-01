@@ -203,8 +203,12 @@ Sub2API 内置支付系统，支持用户自助充值，无需部署独立的支
 1. 登录 [Stripe Dashboard](https://dashboard.stripe.com/)
 2. 进入 **Developers → Webhooks**
 3. 添加端点，填写回调地址
-4. 订阅事件：`payment_intent.succeeded`、`payment_intent.payment_failed`
+4. 订阅事件：`payment_intent.succeeded`、`payment_intent.payment_failed`、`checkout.session.completed`、`invoice.paid`、`invoice.payment_failed`
 5. 将生成的 Webhook Secret（`whsec_...`）填入服务商配置
+
+如需 Stripe 订阅自动续费，在订阅套餐里填写 Stripe recurring Price ID
+（例如 `price_...`）。该套餐会走 Stripe Checkout subscription 模式；
+普通余额充值仍然走一次性 PaymentIntent。
 
 ### 注意事项
 

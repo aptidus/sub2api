@@ -30461,6 +30461,7 @@ type SubscriptionPlanMutation struct {
 	validity_unit     *string
 	features          *string
 	product_name      *string
+	stripe_price_id   *string
 	for_sale          *bool
 	sort_order        *int
 	addsort_order     *int
@@ -30988,6 +30989,42 @@ func (m *SubscriptionPlanMutation) ResetProductName() {
 	m.product_name = nil
 }
 
+// SetStripePriceID sets the "stripe_price_id" field.
+func (m *SubscriptionPlanMutation) SetStripePriceID(s string) {
+	m.stripe_price_id = &s
+}
+
+// StripePriceID returns the value of the "stripe_price_id" field in the mutation.
+func (m *SubscriptionPlanMutation) StripePriceID() (r string, exists bool) {
+	v := m.stripe_price_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStripePriceID returns the old "stripe_price_id" field's value of the SubscriptionPlan entity.
+// If the SubscriptionPlan object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SubscriptionPlanMutation) OldStripePriceID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStripePriceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStripePriceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStripePriceID: %w", err)
+	}
+	return oldValue.StripePriceID, nil
+}
+
+// ResetStripePriceID resets all changes to the "stripe_price_id" field.
+func (m *SubscriptionPlanMutation) ResetStripePriceID() {
+	m.stripe_price_id = nil
+}
+
 // SetForSale sets the "for_sale" field.
 func (m *SubscriptionPlanMutation) SetForSale(b bool) {
 	m.for_sale = &b
@@ -31186,7 +31223,7 @@ func (m *SubscriptionPlanMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SubscriptionPlanMutation) Fields() []string {
-	fields := make([]string, 0, 13)
+	fields := make([]string, 0, 14)
 	if m.group_id != nil {
 		fields = append(fields, subscriptionplan.FieldGroupID)
 	}
@@ -31213,6 +31250,9 @@ func (m *SubscriptionPlanMutation) Fields() []string {
 	}
 	if m.product_name != nil {
 		fields = append(fields, subscriptionplan.FieldProductName)
+	}
+	if m.stripe_price_id != nil {
+		fields = append(fields, subscriptionplan.FieldStripePriceID)
 	}
 	if m.for_sale != nil {
 		fields = append(fields, subscriptionplan.FieldForSale)
@@ -31252,6 +31292,8 @@ func (m *SubscriptionPlanMutation) Field(name string) (ent.Value, bool) {
 		return m.Features()
 	case subscriptionplan.FieldProductName:
 		return m.ProductName()
+	case subscriptionplan.FieldStripePriceID:
+		return m.StripePriceID()
 	case subscriptionplan.FieldForSale:
 		return m.ForSale()
 	case subscriptionplan.FieldSortOrder:
@@ -31287,6 +31329,8 @@ func (m *SubscriptionPlanMutation) OldField(ctx context.Context, name string) (e
 		return m.OldFeatures(ctx)
 	case subscriptionplan.FieldProductName:
 		return m.OldProductName(ctx)
+	case subscriptionplan.FieldStripePriceID:
+		return m.OldStripePriceID(ctx)
 	case subscriptionplan.FieldForSale:
 		return m.OldForSale(ctx)
 	case subscriptionplan.FieldSortOrder:
@@ -31366,6 +31410,13 @@ func (m *SubscriptionPlanMutation) SetField(name string, value ent.Value) error 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetProductName(v)
+		return nil
+	case subscriptionplan.FieldStripePriceID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStripePriceID(v)
 		return nil
 	case subscriptionplan.FieldForSale:
 		v, ok := value.(bool)
@@ -31542,6 +31593,9 @@ func (m *SubscriptionPlanMutation) ResetField(name string) error {
 		return nil
 	case subscriptionplan.FieldProductName:
 		m.ResetProductName()
+		return nil
+	case subscriptionplan.FieldStripePriceID:
+		m.ResetStripePriceID()
 		return nil
 	case subscriptionplan.FieldForSale:
 		m.ResetForSale()

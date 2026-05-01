@@ -412,7 +412,9 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 		ClientIP:    req.ClientIP,
 		IsMobile:    req.IsMobile,
 		ReturnURL:   providerReturnURL,
-	}, sel, outTradeNo, payAmountStr, subject)
+		OrderType:   req.OrderType,
+		PlanID:      req.PlanID,
+	}, sel, outTradeNo, payAmountStr, subject, plan)
 	pr, err := prov.CreatePayment(ctx, providerReq)
 	if err != nil {
 		slog.Error("[PaymentService] CreatePayment failed", "provider", sel.ProviderKey, "instance", sel.InstanceID, "error", err)
@@ -448,7 +450,11 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	return resp, nil
 }
 
-func buildProviderCreatePaymentRequest(req CreateOrderRequest, sel *payment.InstanceSelection, orderID, amount, subject string) payment.CreatePaymentRequest {
+func buildProviderCreatePaymentRequest(req CreateOrderRequest, sel *payment.InstanceSelection, orderID, amount, subject string, plan *dbent.SubscriptionPlan) payment.CreatePaymentRequest {
+	stripePriceID := ""
+	if plan != nil {
+		stripePriceID = strings.TrimSpace(plan.StripePriceID)
+	}
 	return payment.CreatePaymentRequest{
 		OrderID:            orderID,
 		Amount:             amount,
@@ -459,6 +465,9 @@ func buildProviderCreatePaymentRequest(req CreateOrderRequest, sel *payment.Inst
 		ClientIP:           req.ClientIP,
 		IsMobile:           req.IsMobile,
 		InstanceSubMethods: selectedInstanceSupportedTypes(sel),
+		OrderType:          req.OrderType,
+		PlanID:             req.PlanID,
+		StripePriceID:      stripePriceID,
 	}
 }
 

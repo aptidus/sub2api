@@ -188,6 +188,20 @@ func (_u *SubscriptionPlanUpdate) SetNillableProductName(v *string) *Subscriptio
 	return _u
 }
 
+// SetStripePriceID sets the "stripe_price_id" field.
+func (_u *SubscriptionPlanUpdate) SetStripePriceID(v string) *SubscriptionPlanUpdate {
+	_u.mutation.SetStripePriceID(v)
+	return _u
+}
+
+// SetNillableStripePriceID sets the "stripe_price_id" field if the given value is not nil.
+func (_u *SubscriptionPlanUpdate) SetNillableStripePriceID(v *string) *SubscriptionPlanUpdate {
+	if v != nil {
+		_u.SetStripePriceID(*v)
+	}
+	return _u
+}
+
 // SetForSale sets the "for_sale" field.
 func (_u *SubscriptionPlanUpdate) SetForSale(v bool) *SubscriptionPlanUpdate {
 	_u.mutation.SetForSale(v)
@@ -287,6 +301,11 @@ func (_u *SubscriptionPlanUpdate) check() error {
 			return &ValidationError{Name: "product_name", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.product_name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.StripePriceID(); ok {
+		if err := subscriptionplan.StripePriceIDValidator(v); err != nil {
+			return &ValidationError{Name: "stripe_price_id", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.stripe_price_id": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -343,6 +362,9 @@ func (_u *SubscriptionPlanUpdate) sqlSave(ctx context.Context) (_node int, err e
 	}
 	if value, ok := _u.mutation.ProductName(); ok {
 		_spec.SetField(subscriptionplan.FieldProductName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.StripePriceID(); ok {
+		_spec.SetField(subscriptionplan.FieldStripePriceID, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.ForSale(); ok {
 		_spec.SetField(subscriptionplan.FieldForSale, field.TypeBool, value)
@@ -536,6 +558,20 @@ func (_u *SubscriptionPlanUpdateOne) SetNillableProductName(v *string) *Subscrip
 	return _u
 }
 
+// SetStripePriceID sets the "stripe_price_id" field.
+func (_u *SubscriptionPlanUpdateOne) SetStripePriceID(v string) *SubscriptionPlanUpdateOne {
+	_u.mutation.SetStripePriceID(v)
+	return _u
+}
+
+// SetNillableStripePriceID sets the "stripe_price_id" field if the given value is not nil.
+func (_u *SubscriptionPlanUpdateOne) SetNillableStripePriceID(v *string) *SubscriptionPlanUpdateOne {
+	if v != nil {
+		_u.SetStripePriceID(*v)
+	}
+	return _u
+}
+
 // SetForSale sets the "for_sale" field.
 func (_u *SubscriptionPlanUpdateOne) SetForSale(v bool) *SubscriptionPlanUpdateOne {
 	_u.mutation.SetForSale(v)
@@ -648,6 +684,11 @@ func (_u *SubscriptionPlanUpdateOne) check() error {
 			return &ValidationError{Name: "product_name", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.product_name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.StripePriceID(); ok {
+		if err := subscriptionplan.StripePriceIDValidator(v); err != nil {
+			return &ValidationError{Name: "stripe_price_id", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.stripe_price_id": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -721,6 +762,9 @@ func (_u *SubscriptionPlanUpdateOne) sqlSave(ctx context.Context) (_node *Subscr
 	}
 	if value, ok := _u.mutation.ProductName(); ok {
 		_spec.SetField(subscriptionplan.FieldProductName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.StripePriceID(); ok {
+		_spec.SetField(subscriptionplan.FieldStripePriceID, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.ForSale(); ok {
 		_spec.SetField(subscriptionplan.FieldForSale, field.TypeBool, value)

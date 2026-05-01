@@ -283,6 +283,17 @@ func TestAccountGetMappedModel(t *testing.T) {
 			expected:       "gemini-3.1-pro-preview",
 		},
 		{
+			name:     "anthropic display suffix resolves through normalized mapping",
+			platform: PlatformAnthropic,
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"claude-sonnet-4-6": "claude-sonnet-4-6",
+				},
+			},
+			requestedModel: "claude-sonnet-4-6[1m]",
+			expected:       "claude-sonnet-4-6",
+		},
+		{
 			name:     "gemini customtools exact mapping wins over normalized fallback",
 			platform: PlatformGemini,
 			credentials: map[string]any{
@@ -368,6 +379,18 @@ func TestAccountResolveMappedModel(t *testing.T) {
 			},
 			requestedModel: "gemini-3.1-pro-preview-customtools",
 			expectedModel:  "gemini-3.1-pro-preview",
+			expectedMatch:  true,
+		},
+		{
+			name:     "anthropic display suffix reports normalized match",
+			platform: PlatformAnthropic,
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"claude-sonnet-4-6": "claude-sonnet-4-6",
+				},
+			},
+			requestedModel: "claude-sonnet-4-6[1m]",
+			expectedModel:  "claude-sonnet-4-6",
 			expectedMatch:  true,
 		},
 		{

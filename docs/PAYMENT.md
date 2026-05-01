@@ -203,8 +203,13 @@ When adding a provider, the system auto-generates callback URLs from your site d
 1. Log in to [Stripe Dashboard](https://dashboard.stripe.com/)
 2. Go to **Developers → Webhooks**
 3. Add an endpoint with the callback URL
-4. Subscribe to events: `payment_intent.succeeded`, `payment_intent.payment_failed`
+4. Subscribe to events: `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`
 5. Copy the generated Webhook Secret (`whsec_...`) to your provider configuration
+
+For recurring Stripe subscriptions, set the subscription plan's `stripe_price_id`
+to a recurring Stripe Price ID such as `price_...`. Sub2API will use Stripe
+Checkout in subscription mode for that plan and keep one-time PaymentIntent
+checkout for balance top-ups.
 
 ### Important Notes
 

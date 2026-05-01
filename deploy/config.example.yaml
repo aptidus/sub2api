@@ -947,6 +947,12 @@ pricing:
   # Hash check interval in minutes
   # 哈希检查间隔（分钟）
   hash_check_interval_minutes: 10
+  # Pricing provenance label shown in admin status. Keep the default for
+  # third-party/LiteLLM-compatible snapshots; set to "official_provider_snapshot"
+  # only after provider-published prices have been reviewed and pinned.
+  # 管理后台展示的价格来源标签。第三方/LiteLLM 兼容快照保持默认；
+  # 只有审核并固定官方价格后才设置为 official_provider_snapshot。
+  source_label: "litellm_compatible_snapshot"
 
 # =============================================================================
 # Billing Configuration

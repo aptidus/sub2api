@@ -151,6 +151,7 @@ type CreatePlanRequest struct {
 	ValidityUnit  string   `json:"validity_unit"`
 	Features      string   `json:"features"`
 	ProductName   string   `json:"product_name"`
+	StripePriceID string   `json:"stripe_price_id"`
 	ForSale       bool     `json:"for_sale"`
 	SortOrder     int      `json:"sort_order"`
 }
@@ -165,6 +166,7 @@ type UpdatePlanRequest struct {
 	ValidityUnit  *string  `json:"validity_unit"`
 	Features      *string  `json:"features"`
 	ProductName   *string  `json:"product_name"`
+	StripePriceID *string  `json:"stripe_price_id"`
 	ForSale       *bool    `json:"for_sale"`
 	SortOrder     *int     `json:"sort_order"`
 }

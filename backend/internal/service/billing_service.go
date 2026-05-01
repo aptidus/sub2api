@@ -770,9 +770,12 @@ func (s *BillingService) GetPricingServiceStatus() map[string]any {
 		return s.pricingService.GetStatus()
 	}
 	return map[string]any{
-		"model_count":  len(s.fallbackPrices),
-		"last_updated": "using fallback",
-		"local_hash":   "N/A",
+		"model_count":       len(s.fallbackPrices),
+		"last_updated":      "using fallback",
+		"local_hash":        "N/A",
+		"source_label":      "hardcoded_fallback",
+		"authoritative":     false,
+		"commercial_notice": "hardcoded fallback pricing is not authoritative for customer billing",
 	}
 }
 

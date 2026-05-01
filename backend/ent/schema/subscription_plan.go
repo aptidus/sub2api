@@ -54,6 +54,9 @@ func (SubscriptionPlan) Fields() []ent.Field {
 		field.String("product_name").
 			MaxLen(100).
 			Default(""),
+		field.String("stripe_price_id").
+			MaxLen(128).
+			Default(""),
 		field.Bool("for_sale").
 			Default(true),
 		field.Int("sort_order").

@@ -1,6 +1,11 @@
 // Package claude provides constants and helpers for Claude API integration.
 package claude
 
+import (
+	"regexp"
+	"strings"
+)
+
 // Claude Code 客户端相关常量
 
 // Beta header 常量
@@ -180,15 +185,38 @@ var ModelIDReverseOverrides = map[string]string{
 	"claude-haiku-4-5-20251001":  "claude-haiku-4-5",
 }
 
+var modelDisplaySuffixPattern = regexp.MustCompile(`\s*\[[^\[\]]+\]\s*$`)
+
+// StripModelDisplaySuffix removes UI-only Claude model tags such as "[1m]".
+// Claude Code/Cowork can display long-context variants this way, but Anthropic
+// upstream expects the base model id plus beta headers, not the bracket suffix.
+func StripModelDisplaySuffix(id string) string {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return trimmed
+	}
+	if !strings.HasPrefix(strings.ToLower(trimmed), "claude-") {
+		return trimmed
+	}
+	for {
+		next := strings.TrimSpace(modelDisplaySuffixPattern.ReplaceAllString(trimmed, ""))
+		if next == "" || next == trimmed {
+			return trimmed
+		}
+		trimmed = next
+	}
+}
+
 // NormalizeModelID 根据 Claude OAuth 规则映射模型
 func NormalizeModelID(id string) string {
 	if id == "" {
 		return id
 	}
-	if mapped, ok := ModelIDOverrides[id]; ok {
+	normalized := StripModelDisplaySuffix(id)
+	if mapped, ok := ModelIDOverrides[normalized]; ok {
 		return mapped
 	}
-	return id
+	return normalized
 }
 
 // DenormalizeModelID 将上游模型 ID 转换为短名

@@ -486,6 +486,10 @@ type PricingConfig struct {
 	UpdateIntervalHours int `mapstructure:"update_interval_hours"`
 	// 哈希校验间隔（分钟）
 	HashCheckIntervalMinutes int `mapstructure:"hash_check_interval_minutes"`
+	// PricingSourceLabel describes the provenance shown in admin status.
+	// The default is a LiteLLM-compatible third-party snapshot; set this to
+	// "official" only when the file is maintained from provider-published prices.
+	SourceLabel string `mapstructure:"source_label"`
 }
 
 type ServerConfig struct {
@@ -1563,6 +1567,7 @@ func setDefaults() {
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.update_interval_hours", 24)
 	viper.SetDefault("pricing.hash_check_interval_minutes", 10)
+	viper.SetDefault("pricing.source_label", "litellm_compatible_snapshot")
 
 	// Timezone (default to Asia/Shanghai for Chinese users)
 	viper.SetDefault("timezone", "Asia/Shanghai")

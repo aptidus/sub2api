@@ -878,10 +878,33 @@ func (s *PricingService) GetStatus() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	sourceLabel := "unknown"
+	remoteURL := ""
+	hashURL := ""
+	fallbackFile := ""
+	authoritative := false
+	if s.cfg != nil {
+		sourceLabel = strings.TrimSpace(s.cfg.Pricing.SourceLabel)
+		remoteURL = strings.TrimSpace(s.cfg.Pricing.RemoteURL)
+		hashURL = strings.TrimSpace(s.cfg.Pricing.HashURL)
+		fallbackFile = strings.TrimSpace(s.cfg.Pricing.FallbackFile)
+		authoritative = strings.EqualFold(sourceLabel, "official") || strings.EqualFold(sourceLabel, "official_provider_snapshot")
+	}
+	if sourceLabel == "" {
+		sourceLabel = "litellm_compatible_snapshot"
+	}
+
 	return map[string]any{
-		"model_count":  len(s.pricingData),
-		"last_updated": s.lastUpdated,
-		"local_hash":   s.localHash[:min(8, len(s.localHash))],
+		"model_count":       len(s.pricingData),
+		"last_updated":      s.lastUpdated,
+		"local_hash":        s.localHash[:min(8, len(s.localHash))],
+		"local_hash_full":   s.localHash,
+		"source_label":      sourceLabel,
+		"source_url":        remoteURL,
+		"hash_url":          hashURL,
+		"fallback_file":     fallbackFile,
+		"authoritative":     authoritative,
+		"commercial_notice": "treat authoritative=false pricing as advisory; use provider-reviewed snapshots for customer billing",
 	}
 }
 

@@ -548,6 +548,15 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		return float64(countAccountsByCondition(availability.Accounts, func(acc *AccountAvailability) bool {
 			return acc.IsOverloaded
 		})), true
+	case "usage_billing_missing_log_count":
+		if s == nil || s.opsRepo == nil {
+			return 0, false
+		}
+		count, err := s.opsRepo.CountUsageBillingMissingLogs(ctx, start, end)
+		if err != nil {
+			return 0, false
+		}
+		return float64(count), true
 	}
 
 	overview, err := s.opsRepo.GetDashboardOverview(ctx, &OpsDashboardFilter{

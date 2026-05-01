@@ -1,5 +1,31 @@
 # Sub2API Handover
 
+## 2026-04-30 Commercial billing hardening
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`
+- Implemented the first production-commerce hardening pass for the planned Stripe launch:
+  - Subscription plans now have `stripe_price_id`, so a plan can map to a real recurring Stripe Price.
+  - Stripe provider now supports recurring Checkout sessions for subscription plans and parses `checkout.session.completed`, `invoice.paid`, and `invoice.payment_failed` alongside existing PaymentIntent events.
+  - Usage-log best-effort queue drops now fall back to synchronous writes instead of silently accepting missing analytics after billing succeeds.
+  - Pricing status now exposes source label, source URL, full hash, fallback file, and whether the pricing source should be treated as authoritative.
+  - Added ops reconciliation metric `usage_billing_missing_log_count` for alerting on rows that were billed through `usage_billing_dedup` but have no matching `usage_logs` row.
+- Added migration `135_commercial_billing_hardening.sql` for `subscription_plans.stripe_price_id` and a usage-log reconciliation index.
+- Added `docs/COMMERCIAL_BILLING.md` documenting the simple pricing policy:
+  - top-up users: `0.70x`
+  - subscription users: `0.50x`
+  - internal/test users: separate non-revenue tracking.
+
+### Verification
+
+- Ran:
+  - `go generate ./ent`
+  - `go test ./internal/service`
+  - `go test ./internal/repository -run 'TestUsageLogRepository|TestMigrations|TestOps'`
+  - `go test ./...` from `backend`
+  - `pnpm --dir frontend exec vue-tsc --noEmit --pretty false`
+  - `pnpm --dir frontend run build`
+- Result: passed. Frontend build still emits existing Vite chunk/dynamic-import warnings only.
+
 ## 2026-04-30 Stripe-only revenue/profit reporting
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`
@@ -187,6 +213,27 @@
   - `pnpm --dir frontend test:run`: passed, 91 files / 545 tests.
   - `pnpm --dir frontend build`: passed, with existing Vite chunk/dynamic-import warnings only.
   - `git diff --check`: passed.
+
+## 2026-04-30 Claude Code `[1m]` model suffix fix
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`.
+- User report: Leif's active Sub2API key failed in Claude Code with `claude-sonnet-4-6[1m]` and the client said the selected model might not exist.
+- Live production repro before the fix:
+  - `POST /v1/messages` with `model=claude-sonnet-4-6[1m]` returned HTTP 502 upstream error.
+  - The same key and same request with `model=claude-sonnet-4-6` returned HTTP 200 and `ok`.
+- Root cause: Claude/Cowork can show/send `[1m]` as a long-context display suffix, but Sub2API forwarded that literal string to Anthropic instead of stripping it to the real upstream model id. Auth and the user key were not the root problem.
+- Fix:
+  - Added Claude model display-suffix stripping in `backend/internal/pkg/claude/constants.go`.
+  - Made Anthropic account model-mapping lookup normalize suffixed IDs before whitelist/mapping checks.
+  - Applied the same normalization to Anthropic API-key passthrough, `count_tokens`, and OpenAI-compatible Anthropic bridge paths.
+  - Added regression coverage for `claude-sonnet-4-6[1m]` normalization and Anthropic API-key passthrough.
+- Verification passed:
+  - `go test ./internal/pkg/claude`
+  - `go test ./internal/service -run 'TestAccount(GetMappedModel|ResolveMappedModel)|TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases'`
+  - `go test ./...`
+  - `pnpm --dir frontend exec vue-tsc --noEmit --pretty false`
+  - `pnpm --dir frontend run build` passed with existing Vite dynamic-import/chunk-size warnings only.
+- Deployment caution: this checkout also contains the previously requested Stripe/commercial-billing hardening diff. If pushing `main`, it will deploy both that work and the `[1m]` fix together.
 
 ## 2026-04-30 Profitability setup inputs needed
 

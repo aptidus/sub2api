@@ -124,6 +124,20 @@ func (_c *SubscriptionPlanCreate) SetNillableProductName(v *string) *Subscriptio
 	return _c
 }
 
+// SetStripePriceID sets the "stripe_price_id" field.
+func (_c *SubscriptionPlanCreate) SetStripePriceID(v string) *SubscriptionPlanCreate {
+	_c.mutation.SetStripePriceID(v)
+	return _c
+}
+
+// SetNillableStripePriceID sets the "stripe_price_id" field if the given value is not nil.
+func (_c *SubscriptionPlanCreate) SetNillableStripePriceID(v *string) *SubscriptionPlanCreate {
+	if v != nil {
+		_c.SetStripePriceID(*v)
+	}
+	return _c
+}
+
 // SetForSale sets the "for_sale" field.
 func (_c *SubscriptionPlanCreate) SetForSale(v bool) *SubscriptionPlanCreate {
 	_c.mutation.SetForSale(v)
@@ -235,6 +249,10 @@ func (_c *SubscriptionPlanCreate) defaults() {
 		v := subscriptionplan.DefaultProductName
 		_c.mutation.SetProductName(v)
 	}
+	if _, ok := _c.mutation.StripePriceID(); !ok {
+		v := subscriptionplan.DefaultStripePriceID
+		_c.mutation.SetStripePriceID(v)
+	}
 	if _, ok := _c.mutation.ForSale(); !ok {
 		v := subscriptionplan.DefaultForSale
 		_c.mutation.SetForSale(v)
@@ -292,6 +310,14 @@ func (_c *SubscriptionPlanCreate) check() error {
 	if v, ok := _c.mutation.ProductName(); ok {
 		if err := subscriptionplan.ProductNameValidator(v); err != nil {
 			return &ValidationError{Name: "product_name", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.product_name": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.StripePriceID(); !ok {
+		return &ValidationError{Name: "stripe_price_id", err: errors.New(`ent: missing required field "SubscriptionPlan.stripe_price_id"`)}
+	}
+	if v, ok := _c.mutation.StripePriceID(); ok {
+		if err := subscriptionplan.StripePriceIDValidator(v); err != nil {
+			return &ValidationError{Name: "stripe_price_id", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.stripe_price_id": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.ForSale(); !ok {
@@ -368,6 +394,10 @@ func (_c *SubscriptionPlanCreate) createSpec() (*SubscriptionPlan, *sqlgraph.Cre
 	if value, ok := _c.mutation.ProductName(); ok {
 		_spec.SetField(subscriptionplan.FieldProductName, field.TypeString, value)
 		_node.ProductName = value
+	}
+	if value, ok := _c.mutation.StripePriceID(); ok {
+		_spec.SetField(subscriptionplan.FieldStripePriceID, field.TypeString, value)
+		_node.StripePriceID = value
 	}
 	if value, ok := _c.mutation.ForSale(); ok {
 		_spec.SetField(subscriptionplan.FieldForSale, field.TypeBool, value)
@@ -572,6 +602,18 @@ func (u *SubscriptionPlanUpsert) SetProductName(v string) *SubscriptionPlanUpser
 // UpdateProductName sets the "product_name" field to the value that was provided on create.
 func (u *SubscriptionPlanUpsert) UpdateProductName() *SubscriptionPlanUpsert {
 	u.SetExcluded(subscriptionplan.FieldProductName)
+	return u
+}
+
+// SetStripePriceID sets the "stripe_price_id" field.
+func (u *SubscriptionPlanUpsert) SetStripePriceID(v string) *SubscriptionPlanUpsert {
+	u.Set(subscriptionplan.FieldStripePriceID, v)
+	return u
+}
+
+// UpdateStripePriceID sets the "stripe_price_id" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsert) UpdateStripePriceID() *SubscriptionPlanUpsert {
+	u.SetExcluded(subscriptionplan.FieldStripePriceID)
 	return u
 }
 
@@ -820,6 +862,20 @@ func (u *SubscriptionPlanUpsertOne) SetProductName(v string) *SubscriptionPlanUp
 func (u *SubscriptionPlanUpsertOne) UpdateProductName() *SubscriptionPlanUpsertOne {
 	return u.Update(func(s *SubscriptionPlanUpsert) {
 		s.UpdateProductName()
+	})
+}
+
+// SetStripePriceID sets the "stripe_price_id" field.
+func (u *SubscriptionPlanUpsertOne) SetStripePriceID(v string) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetStripePriceID(v)
+	})
+}
+
+// UpdateStripePriceID sets the "stripe_price_id" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertOne) UpdateStripePriceID() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateStripePriceID()
 	})
 }
 
@@ -1241,6 +1297,20 @@ func (u *SubscriptionPlanUpsertBulk) SetProductName(v string) *SubscriptionPlanU
 func (u *SubscriptionPlanUpsertBulk) UpdateProductName() *SubscriptionPlanUpsertBulk {
 	return u.Update(func(s *SubscriptionPlanUpsert) {
 		s.UpdateProductName()
+	})
+}
+
+// SetStripePriceID sets the "stripe_price_id" field.
+func (u *SubscriptionPlanUpsertBulk) SetStripePriceID(v string) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetStripePriceID(v)
+	})
+}
+
+// UpdateStripePriceID sets the "stripe_price_id" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertBulk) UpdateStripePriceID() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateStripePriceID()
 	})
 }
 

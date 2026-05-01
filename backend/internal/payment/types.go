@@ -105,6 +105,9 @@ type CreatePaymentRequest struct {
 	ClientIP           string // Payer's IP address
 	IsMobile           bool   // Whether the request comes from a mobile device
 	InstanceSubMethods string // Comma-separated sub-methods from instance supported_types (for Stripe)
+	OrderType          string // balance/subscription
+	PlanID             int64  // Sub2API subscription plan ID when OrderType=subscription
+	StripePriceID      string // Stripe recurring Price ID for subscription Checkout
 }
 
 // CreatePaymentResultType describes the shape of the create-payment result.

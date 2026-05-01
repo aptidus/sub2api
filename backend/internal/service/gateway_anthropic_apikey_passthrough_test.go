@@ -292,6 +292,13 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases(t *test
 			endpoint:      "messages",
 		},
 		{
+			name:          "Forward: Claude display suffix is normalized without explicit mapping",
+			model:         "claude-sonnet-4-6[1m]",
+			modelMapping:  nil,
+			expectedModel: "claude-sonnet-4-6",
+			endpoint:      "messages",
+		},
+		{
 			name:          "Forward: 模型不在映射表中时不改写",
 			model:         "claude-sonnet-4-20250514",
 			modelMapping:  map[string]any{"claude-3-haiku-20240307": "claude-3-opus-20240229"},
@@ -317,6 +324,13 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases(t *test
 			model:         "claude-sonnet-4-20250514",
 			modelMapping:  nil,
 			expectedModel: "claude-sonnet-4-20250514",
+			endpoint:      "count_tokens",
+		},
+		{
+			name:          "CountTokens: Claude display suffix is normalized without explicit mapping",
+			model:         "claude-sonnet-4-6[1m]",
+			modelMapping:  nil,
+			expectedModel: "claude-sonnet-4-6",
 			endpoint:      "count_tokens",
 		},
 		{

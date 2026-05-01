@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 )
 
 type Account struct {
@@ -573,6 +574,9 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	trimmed := strings.TrimSpace(requestedModel)
 	if trimmed == "" {
 		return ""
+	}
+	if platform == PlatformAnthropic {
+		return claude.NormalizeModelID(trimmed)
 	}
 	if platform != PlatformGemini && platform != PlatformAntigravity {
 		return trimmed
