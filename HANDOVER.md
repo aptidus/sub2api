@@ -1,5 +1,19 @@
 # Sub2API Handover
 
+## 2026-04-30 GitHub Node 20 action warning cleanup
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`
+- The non-blocking GitHub warning after the Sub2API deploy was not from the app's own `node-version: '20'`; it was from `pnpm/action-setup@v4`, whose JavaScript action runtime still used Node 20.
+- Updated every `pnpm/action-setup` usage from `v4` to `v6` in:
+  - `.github/workflows/backend-ci.yml`
+  - `.github/workflows/security-scan.yml`
+  - `.github/workflows/release.yml`
+- Kept the project build Node version unchanged at `20` to avoid changing app/runtime assumptions in the same fix.
+- Verification:
+  - Commit `1d566736` passed GitHub CI run `25196057351`.
+  - Commit `1d566736` passed GitHub Security Scan run `25196057344`.
+  - The repeated Node 20 action annotation disappeared from the watched run output.
+
 ## 2026-04-30 Customer portal QA and provisioned-key rotation
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`
