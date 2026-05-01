@@ -226,14 +226,19 @@
   - Added Claude model display-suffix stripping in `backend/internal/pkg/claude/constants.go`.
   - Made Anthropic account model-mapping lookup normalize suffixed IDs before whitelist/mapping checks.
   - Applied the same normalization to Anthropic API-key passthrough, `count_tokens`, and OpenAI-compatible Anthropic bridge paths.
+  - Follow-up after live QA: pricing lookup also normalizes the suffix before cost lookup, so `claude-sonnet-4-6[1m]` does not fuzzy-match an older Sonnet pricing row when a normalized model price exists.
   - Added regression coverage for `claude-sonnet-4-6[1m]` normalization and Anthropic API-key passthrough.
 - Verification passed:
   - `go test ./internal/pkg/claude`
   - `go test ./internal/service -run 'TestAccount(GetMappedModel|ResolveMappedModel)|TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases'`
+  - `go test ./internal/service -run 'TestGetModelPricing_NormalizesClaudeDisplaySuffixBeforeLookup|TestAccount(GetMappedModel|ResolveMappedModel)|TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases'`
   - `go test ./...`
   - `pnpm --dir frontend exec vue-tsc --noEmit --pretty false`
   - `pnpm --dir frontend run build` passed with existing Vite dynamic-import/chunk-size warnings only.
-- Deployment caution: this checkout also contains the previously requested Stripe/commercial-billing hardening diff. If pushing `main`, it will deploy both that work and the `[1m]` fix together.
+- Deployment:
+  - Commit `febb5c42` was pushed to `aptidus/sub2api` `main`; Railway deployment `140f35ce-b643-4f32-9467-dc9c1f00c6bb` succeeded.
+  - Live QA after `febb5c42`: `POST /v1/messages` with `model=claude-sonnet-4-6[1m]` returned HTTP 200 and `ok`.
+  - A second follow-up commit is required for the pricing-normalization log issue discovered during live QA.
 
 ## 2026-04-30 Profitability setup inputs needed
 

@@ -63,6 +63,21 @@ func TestGetModelPricing_Gpt53CodexFallbackStillUsesGpt52Codex(t *testing.T) {
 	require.Same(t, gpt52CodexPricing, got)
 }
 
+func TestGetModelPricing_NormalizesClaudeDisplaySuffixBeforeLookup(t *testing.T) {
+	sonnet46Pricing := &LiteLLMModelPricing{InputCostPerToken: 4.6}
+	sonnet45Pricing := &LiteLLMModelPricing{InputCostPerToken: 4.5}
+
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"claude-sonnet-4-6":          sonnet46Pricing,
+			"claude-sonnet-4-5-20250929": sonnet45Pricing,
+		},
+	}
+
+	got := svc.GetModelPricing("claude-sonnet-4-6[1m]")
+	require.Same(t, sonnet46Pricing, got)
+}
+
 func TestGetModelPricing_OpenAIFallbackMatchedLoggedAsInfo(t *testing.T) {
 	logSink, restore := captureStructuredLog(t)
 	defer restore()
