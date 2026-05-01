@@ -1415,6 +1415,9 @@ func (r *usageLogRepository) GetDashboardStats(ctx context.Context) (*DashboardS
 	if err := r.fillDashboardUsageStatsAggregated(ctx, stats, todayStart, now); err != nil {
 		return nil, err
 	}
+	if err := r.fillDashboardProfitStatsFromUsageLogs(ctx, stats, time.Time{}, now, todayStart, todayStart.Add(24*time.Hour), true); err != nil {
+		return nil, err
+	}
 
 	rpm, tpm, err := r.getPerformanceStats(ctx, 0)
 	if err != nil {
@@ -1441,6 +1444,9 @@ func (r *usageLogRepository) GetDashboardStatsWithRange(ctx context.Context, sta
 		return nil, err
 	}
 	if err := r.fillDashboardUsageStatsFromUsageLogs(ctx, stats, startUTC, endUTC, todayStart, now); err != nil {
+		return nil, err
+	}
+	if err := r.fillDashboardProfitStatsFromUsageLogs(ctx, stats, startUTC, endUTC, todayStart, todayStart.Add(24*time.Hour), false); err != nil {
 		return nil, err
 	}
 
@@ -1695,6 +1701,105 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 	}
 
 	return nil
+}
+
+func (r *usageLogRepository) fillDashboardProfitStatsFromUsageLogs(ctx context.Context, stats *DashboardStats, totalStartUTC, totalEndUTC, todayStartUTC, todayEndUTC time.Time, allTime bool) error {
+	query := `
+		WITH scoped AS (
+			SELECT
+				ul.created_at,
+				ul.actual_cost,
+				COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1) AS account_cost,
+				COALESCE(u.role, '') = $6
+					OR COALESCE(u.internal_usage, FALSE)
+					OR COALESCE(ak.internal_usage, FALSE) AS is_internal
+			FROM usage_logs ul
+			LEFT JOIN users u ON u.id = ul.user_id
+			LEFT JOIN api_keys ak ON ak.id = ul.api_key_id
+			WHERE ($5::boolean OR ul.created_at >= LEAST($1::timestamptz, $3::timestamptz))
+				AND ul.created_at < GREATEST($2::timestamptz, $4::timestamptz)
+		)
+		SELECT
+			COUNT(*) FILTER (
+				WHERE NOT is_internal
+					AND ($5::boolean OR created_at >= $1::timestamptz)
+					AND created_at < $2::timestamptz
+			) AS total_customer_requests,
+			COALESCE(SUM(actual_cost) FILTER (
+				WHERE NOT is_internal
+					AND ($5::boolean OR created_at >= $1::timestamptz)
+					AND created_at < $2::timestamptz
+			), 0) AS total_customer_actual_cost,
+			COALESCE(SUM(account_cost) FILTER (
+				WHERE NOT is_internal
+					AND ($5::boolean OR created_at >= $1::timestamptz)
+					AND created_at < $2::timestamptz
+			), 0) AS total_customer_account_cost,
+			COALESCE(SUM(actual_cost - account_cost) FILTER (
+				WHERE NOT is_internal
+					AND ($5::boolean OR created_at >= $1::timestamptz)
+					AND created_at < $2::timestamptz
+			), 0) AS total_customer_profit,
+			COUNT(*) FILTER (
+				WHERE is_internal
+					AND ($5::boolean OR created_at >= $1::timestamptz)
+					AND created_at < $2::timestamptz
+			) AS total_internal_requests,
+			COALESCE(SUM(account_cost) FILTER (
+				WHERE is_internal
+					AND ($5::boolean OR created_at >= $1::timestamptz)
+					AND created_at < $2::timestamptz
+			), 0) AS total_internal_account_cost,
+			COUNT(*) FILTER (
+				WHERE NOT is_internal
+					AND created_at >= $3::timestamptz
+					AND created_at < $4::timestamptz
+			) AS today_customer_requests,
+			COALESCE(SUM(actual_cost) FILTER (
+				WHERE NOT is_internal
+					AND created_at >= $3::timestamptz
+					AND created_at < $4::timestamptz
+			), 0) AS today_customer_actual_cost,
+			COALESCE(SUM(account_cost) FILTER (
+				WHERE NOT is_internal
+					AND created_at >= $3::timestamptz
+					AND created_at < $4::timestamptz
+			), 0) AS today_customer_account_cost,
+			COALESCE(SUM(actual_cost - account_cost) FILTER (
+				WHERE NOT is_internal
+					AND created_at >= $3::timestamptz
+					AND created_at < $4::timestamptz
+			), 0) AS today_customer_profit,
+			COUNT(*) FILTER (
+				WHERE is_internal
+					AND created_at >= $3::timestamptz
+					AND created_at < $4::timestamptz
+			) AS today_internal_requests,
+			COALESCE(SUM(account_cost) FILTER (
+				WHERE is_internal
+					AND created_at >= $3::timestamptz
+					AND created_at < $4::timestamptz
+			), 0) AS today_internal_account_cost
+		FROM scoped
+	`
+	return scanSingleRow(
+		ctx,
+		r.sql,
+		query,
+		[]any{totalStartUTC, totalEndUTC, todayStartUTC, todayEndUTC, allTime, service.RoleAdmin},
+		&stats.TotalCustomerRequests,
+		&stats.TotalCustomerActualCost,
+		&stats.TotalCustomerAccountCost,
+		&stats.TotalCustomerProfit,
+		&stats.TotalInternalRequests,
+		&stats.TotalInternalAccountCost,
+		&stats.TodayCustomerRequests,
+		&stats.TodayCustomerActualCost,
+		&stats.TodayCustomerAccountCost,
+		&stats.TodayCustomerProfit,
+		&stats.TodayInternalRequests,
+		&stats.TodayInternalAccountCost,
+	)
 }
 
 func (r *usageLogRepository) ListByAccount(ctx context.Context, accountID int64, params pagination.PaginationParams) ([]service.UsageLog, *pagination.PaginationResult, error) {

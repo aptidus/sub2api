@@ -34,6 +34,12 @@ func NewStripe(instanceID string, config map[string]string) (*Stripe, error) {
 	if config["secretKey"] == "" {
 		return nil, fmt.Errorf("stripe config missing required key: secretKey")
 	}
+	if config["publishableKey"] == "" {
+		return nil, fmt.Errorf("stripe config missing required key: publishableKey")
+	}
+	if config["webhookSecret"] == "" {
+		return nil, fmt.Errorf("stripe config missing required key: webhookSecret")
+	}
 	return &Stripe{
 		instanceID: instanceID,
 		config:     config,

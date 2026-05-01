@@ -171,6 +171,20 @@ func (_c *UserCreate) SetNillableNotes(v *string) *UserCreate {
 	return _c
 }
 
+// SetInternalUsage sets the "internal_usage" field.
+func (_c *UserCreate) SetInternalUsage(v bool) *UserCreate {
+	_c.mutation.SetInternalUsage(v)
+	return _c
+}
+
+// SetNillableInternalUsage sets the "internal_usage" field if the given value is not nil.
+func (_c *UserCreate) SetNillableInternalUsage(v *bool) *UserCreate {
+	if v != nil {
+		_c.SetInternalUsage(*v)
+	}
+	return _c
+}
+
 // SetTotpSecretEncrypted sets the "totp_secret_encrypted" field.
 func (_c *UserCreate) SetTotpSecretEncrypted(v string) *UserCreate {
 	_c.mutation.SetTotpSecretEncrypted(v)
@@ -594,6 +608,10 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultNotes
 		_c.mutation.SetNotes(v)
 	}
+	if _, ok := _c.mutation.InternalUsage(); !ok {
+		v := user.DefaultInternalUsage
+		_c.mutation.SetInternalUsage(v)
+	}
 	if _, ok := _c.mutation.TotpEnabled(); !ok {
 		v := user.DefaultTotpEnabled
 		_c.mutation.SetTotpEnabled(v)
@@ -681,6 +699,9 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.Notes(); !ok {
 		return &ValidationError{Name: "notes", err: errors.New(`ent: missing required field "User.notes"`)}
+	}
+	if _, ok := _c.mutation.InternalUsage(); !ok {
+		return &ValidationError{Name: "internal_usage", err: errors.New(`ent: missing required field "User.internal_usage"`)}
 	}
 	if _, ok := _c.mutation.TotpEnabled(); !ok {
 		return &ValidationError{Name: "totp_enabled", err: errors.New(`ent: missing required field "User.totp_enabled"`)}
@@ -778,6 +799,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Notes(); ok {
 		_spec.SetField(user.FieldNotes, field.TypeString, value)
 		_node.Notes = value
+	}
+	if value, ok := _c.mutation.InternalUsage(); ok {
+		_spec.SetField(user.FieldInternalUsage, field.TypeBool, value)
+		_node.InternalUsage = value
 	}
 	if value, ok := _c.mutation.TotpSecretEncrypted(); ok {
 		_spec.SetField(user.FieldTotpSecretEncrypted, field.TypeString, value)
@@ -1213,6 +1238,18 @@ func (u *UserUpsert) UpdateNotes() *UserUpsert {
 	return u
 }
 
+// SetInternalUsage sets the "internal_usage" field.
+func (u *UserUpsert) SetInternalUsage(v bool) *UserUpsert {
+	u.Set(user.FieldInternalUsage, v)
+	return u
+}
+
+// UpdateInternalUsage sets the "internal_usage" field to the value that was provided on create.
+func (u *UserUpsert) UpdateInternalUsage() *UserUpsert {
+	u.SetExcluded(user.FieldInternalUsage)
+	return u
+}
+
 // SetTotpSecretEncrypted sets the "totp_secret_encrypted" field.
 func (u *UserUpsert) SetTotpSecretEncrypted(v string) *UserUpsert {
 	u.Set(user.FieldTotpSecretEncrypted, v)
@@ -1608,6 +1645,20 @@ func (u *UserUpsertOne) SetNotes(v string) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateNotes() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateNotes()
+	})
+}
+
+// SetInternalUsage sets the "internal_usage" field.
+func (u *UserUpsertOne) SetInternalUsage(v bool) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetInternalUsage(v)
+	})
+}
+
+// UpdateInternalUsage sets the "internal_usage" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateInternalUsage() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateInternalUsage()
 	})
 }
 
@@ -2204,6 +2255,20 @@ func (u *UserUpsertBulk) SetNotes(v string) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateNotes() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateNotes()
+	})
+}
+
+// SetInternalUsage sets the "internal_usage" field.
+func (u *UserUpsertBulk) SetInternalUsage(v bool) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetInternalUsage(v)
+	})
+}
+
+// UpdateInternalUsage sets the "internal_usage" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateInternalUsage() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateInternalUsage()
 	})
 }
 

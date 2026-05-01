@@ -33,6 +33,13 @@
             </option>
           </select>
         </div>
+        <label class="mt-3 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20">
+          <input v-model="newKeyInternalUsage" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
+          <span>
+            <span class="block font-medium text-gray-900 dark:text-white">{{ t('admin.users.form.internalUsage') }}</span>
+            <span class="block text-xs text-gray-600 dark:text-gray-400">{{ t('admin.users.apiKeyInternalUsageHint') }}</span>
+          </span>
+        </label>
         <div v-if="createdKey" class="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-900/50 dark:bg-green-900/10">
           <p class="mb-2 text-xs font-medium text-green-800 dark:text-green-300">{{ t('admin.users.copyNewKeyNow') }}</p>
           <div class="flex items-center gap-2">
@@ -48,9 +55,23 @@
         <div v-for="key in apiKeys" :key="key.id" class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-600 dark:bg-dark-800">
           <div class="flex items-start justify-between">
             <div class="min-w-0 flex-1">
-              <div class="mb-1 flex items-center gap-2"><span class="font-medium text-gray-900 dark:text-white">{{ key.name }}</span><span :class="['badge text-xs', key.status === 'active' ? 'badge-success' : 'badge-danger']">{{ key.status }}</span></div>
+              <div class="mb-1 flex items-center gap-2">
+                <span class="font-medium text-gray-900 dark:text-white">{{ key.name }}</span>
+                <span :class="['badge text-xs', key.status === 'active' ? 'badge-success' : 'badge-danger']">{{ key.status }}</span>
+                <span v-if="key.internal_usage" class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  {{ t('admin.users.internalUsage') }}
+                </span>
+              </div>
               <p class="truncate font-mono text-sm text-gray-500">{{ key.key.substring(0, 20) }}...{{ key.key.substring(key.key.length - 8) }}</p>
             </div>
+            <button
+              class="btn btn-secondary btn-xs shrink-0"
+              :disabled="updatingKeyIds.has(key.id)"
+              @click="toggleInternalUsage(key)"
+            >
+              <svg v-if="updatingKeyIds.has(key.id)" class="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+              <span>{{ key.internal_usage ? t('admin.users.markCustomerUsage') : t('admin.users.markInternalUsage') }}</span>
+            </button>
           </div>
           <div class="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
             <div class="flex items-center gap-1">
@@ -157,6 +178,7 @@ const creatingKey = ref(false)
 const createdKey = ref<ApiKey | null>(null)
 const newKeyName = ref('')
 const newKeyGroupId = ref<number | null>(null)
+const newKeyInternalUsage = ref(false)
 const updatingKeyIds = ref(new Set<number>())
 const groupSelectorKeyId = ref<number | null>(null)
 const dropdownPosition = ref<{ top: number; left: number } | null>(null)
@@ -181,6 +203,7 @@ watch(() => props.show, (v) => {
   if (v && props.user) {
     newKeyName.value = `${props.user.email} key`
     newKeyGroupId.value = null
+    newKeyInternalUsage.value = props.user.internal_usage || props.user.role === 'admin'
     createdKey.value = null
     load()
     loadGroups()
@@ -218,7 +241,8 @@ const createKeyForUser = async () => {
   try {
     const key = await adminAPI.users.createUserApiKey(props.user.id, {
       name: newKeyName.value.trim(),
-      group_id: newKeyGroupId.value
+      group_id: newKeyGroupId.value,
+      internal_usage: newKeyInternalUsage.value
     })
     createdKey.value = key
     apiKeys.value = [key, ...apiKeys.value.filter((item) => item.id !== key.id)]
@@ -280,6 +304,23 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
     }
   } catch (error: any) {
     appStore.showError(error?.message || t('admin.users.groupChangeFailed'))
+  } finally {
+    updatingKeyIds.value.delete(key.id)
+  }
+}
+
+const toggleInternalUsage = async (key: ApiKey) => {
+  closeGroupSelector()
+  updatingKeyIds.value.add(key.id)
+  try {
+    const result = await adminAPI.apiKeys.updateApiKeyInternalUsage(key.id, !key.internal_usage)
+    const idx = apiKeys.value.findIndex((k) => k.id === key.id)
+    if (idx !== -1) {
+      apiKeys.value[idx] = result.api_key
+    }
+    appStore.showSuccess(t('admin.users.internalUsageChanged'))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.users.internalUsageChangeFailed'))
   } finally {
     updatingKeyIds.value.delete(key.id)
   }

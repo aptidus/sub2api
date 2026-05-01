@@ -298,6 +298,16 @@
             </span>
           </template>
 
+          <template #cell-internal_usage="{ row }">
+            <span
+              v-if="row.role === 'admin' || row.internal_usage"
+              class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            >
+              {{ t('admin.users.internalUsage') }}
+            </span>
+            <span v-else class="text-sm text-gray-400">-</span>
+          </template>
+
           <template #cell-groups="{ row }">
             <div v-if="allGroups.length > 0" class="flex flex-col gap-1">
               <!-- 专属分组行 -->
@@ -706,6 +716,7 @@ const allColumns = computed<Column[]>(() => [
   // Dynamic attribute columns
   ...attributeColumns.value,
   { key: 'role', label: t('admin.users.columns.role'), sortable: true },
+  { key: 'internal_usage', label: t('admin.users.columns.internalUsage'), sortable: false },
   { key: 'groups', label: t('admin.users.columns.groups'), sortable: false },
   { key: 'subscriptions', label: t('admin.users.columns.subscriptions'), sortable: false },
   { key: 'balance', label: t('admin.users.columns.balance'), sortable: true },

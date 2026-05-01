@@ -7,6 +7,25 @@
       </div>
 
       <template v-else-if="stats">
+        <div class="card overflow-hidden border border-cyan-100 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950 p-5 text-white shadow-sm dark:border-cyan-900/40">
+          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">
+                {{ t('admin.dashboard.apiDocsEyebrow') }}
+              </p>
+              <h2 class="mt-2 text-xl font-bold">
+                {{ t('admin.dashboard.apiDocsTitle') }}
+              </h2>
+              <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+                {{ t('admin.dashboard.apiDocsDescription') }}
+              </p>
+            </div>
+            <router-link to="/admin/api-docs" class="btn shrink-0 bg-white text-slate-950 hover:bg-cyan-50">
+              {{ t('admin.dashboard.openApiDocs') }}
+            </router-link>
+          </div>
+        </div>
+
         <!-- Row 1: Core Stats -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Total API Keys -->
@@ -216,6 +235,87 @@
           </div>
         </div>
 
+        <!-- Row 3: Profit Snapshot -->
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div class="card p-4">
+            <div class="flex items-center gap-3">
+              <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
+                <Icon name="dollar" size="md" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
+              </div>
+              <div class="min-w-0">
+                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.todayUsageProfit') }}
+                </p>
+                <p
+                  class="text-xl font-bold"
+                  :class="todayUsageProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'"
+                >
+                  ${{ formatCost(todayUsageProfit) }}
+                </p>
+                <p class="truncate text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.chargedMinusCost', {
+                    charged: `$${formatCost(stats.today_customer_actual_cost)}`,
+                    cost: `$${formatCost(stats.today_customer_account_cost)}`
+                  }) }}
+                </p>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.margin') }}: {{ formatPercent(todayUsageMargin) }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card p-4">
+            <div class="flex items-center gap-3">
+              <div class="rounded-lg bg-sky-100 p-2 dark:bg-sky-900/30">
+                <Icon name="chart" size="md" class="text-sky-600 dark:text-sky-400" :stroke-width="2" />
+              </div>
+              <div class="min-w-0">
+                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.totalUsageProfit') }}
+                </p>
+                <p
+                  class="text-xl font-bold"
+                  :class="totalUsageProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'"
+                >
+                  ${{ formatCost(totalUsageProfit) }}
+                </p>
+                <p class="truncate text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.chargedMinusCost', {
+                    charged: `$${formatCost(stats.total_customer_actual_cost)}`,
+                    cost: `$${formatCost(stats.total_customer_account_cost)}`
+                  }) }}
+                </p>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.margin') }}: {{ formatPercent(totalUsageMargin) }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card p-4">
+            <div class="flex items-center gap-3">
+              <div class="rounded-lg bg-rose-100 p-2 dark:bg-rose-900/30">
+                <Icon name="server" size="md" class="text-rose-600 dark:text-rose-400" :stroke-width="2" />
+              </div>
+              <div class="min-w-0">
+                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.internalUsageCost') }}
+                </p>
+                <p class="text-xl font-bold text-gray-900 dark:text-white">
+                  ${{ formatCost(stats.total_internal_account_cost) }}
+                </p>
+                <p class="truncate text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.todayInternalUsageCost') }}: ${{ formatCost(stats.today_internal_account_cost) }}
+                </p>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ stats.total_internal_requests }} {{ t('admin.dashboard.requests') }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Charts Section -->
         <div class="space-y-6">
           <!-- Date Range Filter -->
@@ -359,6 +459,21 @@ let chartLoadSeq = 0
 let usersTrendLoadSeq = 0
 let rankingLoadSeq = 0
 const rankingLimit = 12
+
+const todayUsageProfit = computed(() => stats.value?.today_customer_profit ?? 0)
+const totalUsageProfit = computed(() => stats.value?.total_customer_profit ?? 0)
+
+const calculateMargin = (profit: number, charged: number): number => {
+  if (charged <= 0) return 0
+  return (profit / charged) * 100
+}
+
+const todayUsageMargin = computed(() =>
+  stats.value ? calculateMargin(todayUsageProfit.value, stats.value.today_customer_actual_cost) : 0
+)
+const totalUsageMargin = computed(() =>
+  stats.value ? calculateMargin(totalUsageProfit.value, stats.value.total_customer_actual_cost) : 0
+)
 
 // Helper function to format date in local timezone
 const formatLocalDate = (date: Date): string => {
@@ -537,7 +652,11 @@ const formatNumber = (value: number): string => {
   return value.toLocaleString()
 }
 
-const formatCost = (value: number): string => {
+const formatCost = (value: number | null | undefined): string => {
+  value = Number(value ?? 0)
+  if (value < 0) {
+    return `-${formatCost(Math.abs(value))}`
+  }
   if (value >= 1000) {
     return (value / 1000).toFixed(2) + 'K'
   } else if (value >= 1) {
@@ -546,6 +665,10 @@ const formatCost = (value: number): string => {
     return value.toFixed(3)
   }
   return value.toFixed(4)
+}
+
+const formatPercent = (value: number): string => {
+  return `${value.toFixed(2)}%`
 }
 
 const formatDuration = (ms: number): string => {

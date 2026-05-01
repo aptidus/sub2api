@@ -78,6 +78,15 @@ func encryptValidWebhookWxpayConfig(t *testing.T, suffix string) string {
 	})
 }
 
+func encryptValidWebhookStripeConfig(t *testing.T, suffix string) string {
+	t.Helper()
+	return encryptWebhookProviderConfig(t, map[string]string{
+		"secretKey":      "sk_test_" + suffix,
+		"publishableKey": "pk_test_" + suffix,
+		"webhookSecret":  "whsec_" + suffix,
+	})
+}
+
 func TestGetOrderProviderInstanceResolvesUniqueLegacyProviderKey(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
@@ -263,6 +272,40 @@ func TestGetOrderProviderInstanceUsesProviderSnapshotWhenPinnedColumnMissing(t *
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Equal(t, inst.ID, got.ID)
+}
+
+func TestGetWebhookProvidersReturnsAllEnabledStripeInstances(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	_, err := client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeStripe).
+		SetName("stripe-a").
+		SetConfig(encryptValidWebhookStripeConfig(t, "a")).
+		SetSupportedTypes("stripe").
+		SetEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeStripe).
+		SetName("stripe-b").
+		SetConfig(encryptValidWebhookStripeConfig(t, "b")).
+		SetSupportedTypes("stripe").
+		SetEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{
+		entClient:    client,
+		loadBalancer: newWebhookProviderTestLoadBalancer(client),
+	}
+
+	providers, err := svc.GetWebhookProviders(ctx, payment.TypeStripe, "")
+	require.NoError(t, err)
+	require.Len(t, providers, 2)
+	require.Equal(t, payment.TypeStripe, providers[0].ProviderKey())
+	require.Equal(t, payment.TypeStripe, providers[1].ProviderKey())
 }
 
 func TestGetOrderProviderInstanceRejectsMissingSnapshotInstanceWithoutLegacyFallback(t *testing.T) {

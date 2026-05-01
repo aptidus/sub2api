@@ -191,6 +191,20 @@ func (_u *UserUpdate) SetNillableNotes(v *string) *UserUpdate {
 	return _u
 }
 
+// SetInternalUsage sets the "internal_usage" field.
+func (_u *UserUpdate) SetInternalUsage(v bool) *UserUpdate {
+	_u.mutation.SetInternalUsage(v)
+	return _u
+}
+
+// SetNillableInternalUsage sets the "internal_usage" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableInternalUsage(v *bool) *UserUpdate {
+	if v != nil {
+		_u.SetInternalUsage(*v)
+	}
+	return _u
+}
+
 // SetTotpSecretEncrypted sets the "totp_secret_encrypted" field.
 func (_u *UserUpdate) SetTotpSecretEncrypted(v string) *UserUpdate {
 	_u.mutation.SetTotpSecretEncrypted(v)
@@ -975,6 +989,9 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Notes(); ok {
 		_spec.SetField(user.FieldNotes, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.InternalUsage(); ok {
+		_spec.SetField(user.FieldInternalUsage, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.TotpSecretEncrypted(); ok {
 		_spec.SetField(user.FieldTotpSecretEncrypted, field.TypeString, value)
 	}
@@ -1755,6 +1772,20 @@ func (_u *UserUpdateOne) SetNotes(v string) *UserUpdateOne {
 func (_u *UserUpdateOne) SetNillableNotes(v *string) *UserUpdateOne {
 	if v != nil {
 		_u.SetNotes(*v)
+	}
+	return _u
+}
+
+// SetInternalUsage sets the "internal_usage" field.
+func (_u *UserUpdateOne) SetInternalUsage(v bool) *UserUpdateOne {
+	_u.mutation.SetInternalUsage(v)
+	return _u
+}
+
+// SetNillableInternalUsage sets the "internal_usage" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableInternalUsage(v *bool) *UserUpdateOne {
+	if v != nil {
+		_u.SetInternalUsage(*v)
 	}
 	return _u
 }
@@ -2572,6 +2603,9 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.Notes(); ok {
 		_spec.SetField(user.FieldNotes, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.InternalUsage(); ok {
+		_spec.SetField(user.FieldInternalUsage, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.TotpSecretEncrypted(); ok {
 		_spec.SetField(user.FieldTotpSecretEncrypted, field.TypeString, value)

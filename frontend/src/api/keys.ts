@@ -122,6 +122,15 @@ export async function deleteKey(id: number): Promise<{ message: string }> {
 }
 
 /**
+ * Rotate an existing provisioned API key.
+ * This replaces only the secret value; limits, usage, and ownership stay the same.
+ */
+export async function rotate(id: number): Promise<ApiKey> {
+  const { data } = await apiClient.post<ApiKey>(`/keys/${id}/rotate`)
+  return data
+}
+
+/**
  * Toggle API key status (active/inactive)
  * @param id - API key ID
  * @param status - New status
@@ -137,6 +146,7 @@ export const keysAPI = {
   create,
   update,
   delete: deleteKey,
+  rotate,
   toggleStatus
 }
 

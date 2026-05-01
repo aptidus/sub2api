@@ -157,6 +157,58 @@ func TestIsSensitiveProviderConfigField(t *testing.T) {
 	}
 }
 
+func TestValidateProviderConfig_StripeRequiresAllRuntimeKeys(t *testing.T) {
+	t.Parallel()
+
+	svc := &PaymentConfigService{}
+
+	tests := []struct {
+		name    string
+		config  map[string]string
+		wantErr string
+	}{
+		{
+			name: "missing publishable key",
+			config: map[string]string{
+				"secretKey":     "sk_test_123",
+				"webhookSecret": "whsec_test_123",
+			},
+			wantErr: "publishableKey",
+		},
+		{
+			name: "missing webhook secret",
+			config: map[string]string{
+				"secretKey":      "sk_test_123",
+				"publishableKey": "pk_test_123",
+			},
+			wantErr: "webhookSecret",
+		},
+		{
+			name: "valid stripe config",
+			config: map[string]string{
+				"secretKey":      "sk_test_123",
+				"publishableKey": "pk_test_123",
+				"webhookSecret":  "whsec_test_123",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := svc.validateProviderConfig(payment.TypeStripe, tc.config)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestJoinTypes(t *testing.T) {
 	t.Parallel()
 

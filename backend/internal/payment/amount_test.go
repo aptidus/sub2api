@@ -16,6 +16,7 @@ func TestYuanToFen(t *testing.T) {
 	}{
 		// Normal values
 		{name: "one yuan", input: "1.00", want: 100},
+		{name: "trailing zero precision", input: "1.230", want: 123},
 		{name: "ten yuan fifty fen", input: "10.50", want: 1050},
 		{name: "one fen", input: "0.01", want: 1},
 		{name: "large amount", input: "99999.99", want: 9999999},
@@ -41,6 +42,7 @@ func TestYuanToFen(t *testing.T) {
 
 		// Single decimal place
 		{name: "single decimal 1.5", input: "1.5", want: 150},
+		{name: "too many decimals 1.234", input: "1.234", wantErr: true},
 
 		// Negative values
 		{name: "negative one yuan", input: "-1.00", want: -100},
@@ -124,5 +126,37 @@ func TestYuanToFenRoundTrip(t *testing.T) {
 		if math.Abs(yuan-expectedYuan) > 1e-9 {
 			t.Errorf("round-trip: FenToYuan(%d) = %f, want %f", fen, yuan, expectedYuan)
 		}
+	}
+}
+
+func TestValidateYuanAmountFloat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   float64
+		wantErr bool
+	}{
+		{name: "whole yuan", input: 10, wantErr: false},
+		{name: "one decimal", input: 10.5, wantErr: false},
+		{name: "two decimals", input: 10.25, wantErr: false},
+		{name: "three decimals", input: 10.255, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateYuanAmountFloat(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ValidateYuanAmountFloat(%v) expected error", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ValidateYuanAmountFloat(%v) unexpected error: %v", tt.input, err)
+			}
+		})
 	}
 }

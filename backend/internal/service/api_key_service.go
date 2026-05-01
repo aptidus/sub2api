@@ -149,11 +149,12 @@ type APIKeyAuthCacheInvalidator interface {
 
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
-	Name        string   `json:"name"`
-	GroupID     *int64   `json:"group_id"`
-	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
-	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
+	Name          string   `json:"name"`
+	GroupID       *int64   `json:"group_id"`
+	CustomKey     *string  `json:"custom_key"` // 可选的自定义key
+	InternalUsage bool     `json:"internal_usage"`
+	IPWhitelist   []string `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist   []string `json:"ip_blacklist"` // IP 黑名单
 
 	// Quota fields
 	Quota         float64 `json:"quota"`           // Quota limit in USD (0 = unlimited)
@@ -167,11 +168,12 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest 更新API Key请求
 type UpdateAPIKeyRequest struct {
-	Name        *string  `json:"name"`
-	GroupID     *int64   `json:"group_id"`
-	Status      *string  `json:"status"`
-	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单（空数组清空）
-	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单（空数组清空）
+	Name          *string  `json:"name"`
+	GroupID       *int64   `json:"group_id"`
+	Status        *string  `json:"status"`
+	InternalUsage *bool    `json:"internal_usage"`
+	IPWhitelist   []string `json:"ip_whitelist"` // IP 白名单（空数组清空）
+	IPBlacklist   []string `json:"ip_blacklist"` // IP 黑名单（空数组清空）
 
 	// Quota fields
 	Quota           *float64   `json:"quota"`       // Quota limit in USD (nil = no change, 0 = unlimited)
@@ -397,18 +399,19 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 	// 创建API Key记录
 	apiKey := &APIKey{
-		UserID:      userID,
-		Key:         key,
-		Name:        req.Name,
-		GroupID:     req.GroupID,
-		Status:      StatusActive,
-		IPWhitelist: req.IPWhitelist,
-		IPBlacklist: req.IPBlacklist,
-		Quota:       req.Quota,
-		QuotaUsed:   0,
-		RateLimit5h: req.RateLimit5h,
-		RateLimit1d: req.RateLimit1d,
-		RateLimit7d: req.RateLimit7d,
+		UserID:        userID,
+		Key:           key,
+		Name:          req.Name,
+		GroupID:       req.GroupID,
+		Status:        StatusActive,
+		InternalUsage: req.InternalUsage,
+		IPWhitelist:   req.IPWhitelist,
+		IPBlacklist:   req.IPBlacklist,
+		Quota:         req.Quota,
+		QuotaUsed:     0,
+		RateLimit5h:   req.RateLimit5h,
+		RateLimit1d:   req.RateLimit1d,
+		RateLimit7d:   req.RateLimit7d,
 	}
 
 	// Set expiration time if specified
@@ -567,6 +570,9 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			_ = s.cache.DeleteCreateAttemptCount(ctx, apiKey.UserID)
 		}
 	}
+	if req.InternalUsage != nil {
+		apiKey.InternalUsage = *req.InternalUsage
+	}
 
 	// Update quota fields
 	if req.Quota != nil {
@@ -634,6 +640,44 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	return apiKey, nil
+}
+
+// Rotate replaces only the secret token for a user's existing API key.
+// Usage, limits, group assignment, and accounting flags stay attached to the same row.
+func (s *APIKeyService) Rotate(ctx context.Context, id int64, userID int64) (*APIKey, error) {
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get api key: %w", err)
+	}
+	if apiKey.UserID != userID {
+		return nil, ErrInsufficientPerms
+	}
+
+	oldKey := apiKey.Key
+	for attempts := 0; attempts < 5; attempts++ {
+		newKey, err := s.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate key: %w", err)
+		}
+		exists, err := s.apiKeyRepo.ExistsByKey(ctx, newKey)
+		if err != nil {
+			return nil, fmt.Errorf("check key exists: %w", err)
+		}
+		if exists {
+			continue
+		}
+
+		apiKey.Key = newKey
+		if err := s.apiKeyRepo.Update(ctx, apiKey); err != nil {
+			return nil, fmt.Errorf("rotate api key: %w", err)
+		}
+		s.InvalidateAuthCacheByKey(ctx, oldKey)
+		s.InvalidateAuthCacheByKey(ctx, newKey)
+		s.compileAPIKeyIPRules(apiKey)
+		return apiKey, nil
+	}
+
+	return nil, ErrAPIKeyExists
 }
 
 // Delete 删除API Key

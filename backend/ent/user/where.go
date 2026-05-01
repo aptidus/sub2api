@@ -110,6 +110,11 @@ func Notes(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldNotes, v))
 }
 
+// InternalUsage applies equality check predicate on the "internal_usage" field. It's identical to InternalUsageEQ.
+func InternalUsage(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldInternalUsage, v))
+}
+
 // TotpSecretEncrypted applies equality check predicate on the "totp_secret_encrypted" field. It's identical to TotpSecretEncryptedEQ.
 func TotpSecretEncrypted(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldTotpSecretEncrypted, v))
@@ -768,6 +773,16 @@ func NotesEqualFold(v string) predicate.User {
 // NotesContainsFold applies the ContainsFold predicate on the "notes" field.
 func NotesContainsFold(v string) predicate.User {
 	return predicate.User(sql.FieldContainsFold(FieldNotes, v))
+}
+
+// InternalUsageEQ applies the EQ predicate on the "internal_usage" field.
+func InternalUsageEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldInternalUsage, v))
+}
+
+// InternalUsageNEQ applies the NEQ predicate on the "internal_usage" field.
+func InternalUsageNEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldInternalUsage, v))
 }
 
 // TotpSecretEncryptedEQ applies the EQ predicate on the "totp_secret_encrypted" field.

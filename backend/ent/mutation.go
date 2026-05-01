@@ -107,6 +107,7 @@ type APIKeyMutation struct {
 	key                *string
 	name               *string
 	status             *string
+	internal_usage     *bool
 	last_used_at       *time.Time
 	ip_whitelist       *[]string
 	appendip_whitelist []string
@@ -555,6 +556,42 @@ func (m *APIKeyMutation) OldStatus(ctx context.Context) (v string, err error) {
 // ResetStatus resets all changes to the "status" field.
 func (m *APIKeyMutation) ResetStatus() {
 	m.status = nil
+}
+
+// SetInternalUsage sets the "internal_usage" field.
+func (m *APIKeyMutation) SetInternalUsage(b bool) {
+	m.internal_usage = &b
+}
+
+// InternalUsage returns the value of the "internal_usage" field in the mutation.
+func (m *APIKeyMutation) InternalUsage() (r bool, exists bool) {
+	v := m.internal_usage
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInternalUsage returns the old "internal_usage" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldInternalUsage(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInternalUsage is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInternalUsage requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInternalUsage: %w", err)
+	}
+	return oldValue.InternalUsage, nil
+}
+
+// ResetInternalUsage resets all changes to the "internal_usage" field.
+func (m *APIKeyMutation) ResetInternalUsage() {
+	m.internal_usage = nil
 }
 
 // SetLastUsedAt sets the "last_used_at" field.
@@ -1522,7 +1559,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 23)
+	fields := make([]string, 0, 24)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1546,6 +1583,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.status != nil {
 		fields = append(fields, apikey.FieldStatus)
+	}
+	if m.internal_usage != nil {
+		fields = append(fields, apikey.FieldInternalUsage)
 	}
 	if m.last_used_at != nil {
 		fields = append(fields, apikey.FieldLastUsedAt)
@@ -1616,6 +1656,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.GroupID()
 	case apikey.FieldStatus:
 		return m.Status()
+	case apikey.FieldInternalUsage:
+		return m.InternalUsage()
 	case apikey.FieldLastUsedAt:
 		return m.LastUsedAt()
 	case apikey.FieldIPWhitelist:
@@ -1671,6 +1713,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldGroupID(ctx)
 	case apikey.FieldStatus:
 		return m.OldStatus(ctx)
+	case apikey.FieldInternalUsage:
+		return m.OldInternalUsage(ctx)
 	case apikey.FieldLastUsedAt:
 		return m.OldLastUsedAt(ctx)
 	case apikey.FieldIPWhitelist:
@@ -1765,6 +1809,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetStatus(v)
+		return nil
+	case apikey.FieldInternalUsage:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInternalUsage(v)
 		return nil
 	case apikey.FieldLastUsedAt:
 		v, ok := value.(time.Time)
@@ -2099,6 +2150,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldStatus:
 		m.ResetStatus()
+		return nil
+	case apikey.FieldInternalUsage:
+		m.ResetInternalUsage()
 		return nil
 	case apikey.FieldLastUsedAt:
 		m.ResetLastUsedAt()
@@ -37440,6 +37494,7 @@ type UserMutation struct {
 	status                        *string
 	username                      *string
 	notes                         *string
+	internal_usage                *bool
 	totp_secret_encrypted         *string
 	totp_enabled                  *bool
 	totp_enabled_at               *time.Time
@@ -38042,6 +38097,42 @@ func (m *UserMutation) OldNotes(ctx context.Context) (v string, err error) {
 // ResetNotes resets all changes to the "notes" field.
 func (m *UserMutation) ResetNotes() {
 	m.notes = nil
+}
+
+// SetInternalUsage sets the "internal_usage" field.
+func (m *UserMutation) SetInternalUsage(b bool) {
+	m.internal_usage = &b
+}
+
+// InternalUsage returns the value of the "internal_usage" field in the mutation.
+func (m *UserMutation) InternalUsage() (r bool, exists bool) {
+	v := m.internal_usage
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInternalUsage returns the old "internal_usage" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldInternalUsage(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInternalUsage is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInternalUsage requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInternalUsage: %w", err)
+	}
+	return oldValue.InternalUsage, nil
+}
+
+// ResetInternalUsage resets all changes to the "internal_usage" field.
+func (m *UserMutation) ResetInternalUsage() {
+	m.internal_usage = nil
 }
 
 // SetTotpSecretEncrypted sets the "totp_secret_encrypted" field.
@@ -39284,7 +39375,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 23)
+	fields := make([]string, 0, 24)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -39317,6 +39408,9 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.notes != nil {
 		fields = append(fields, user.FieldNotes)
+	}
+	if m.internal_usage != nil {
+		fields = append(fields, user.FieldInternalUsage)
 	}
 	if m.totp_secret_encrypted != nil {
 		fields = append(fields, user.FieldTotpSecretEncrypted)
@@ -39384,6 +39478,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.Username()
 	case user.FieldNotes:
 		return m.Notes()
+	case user.FieldInternalUsage:
+		return m.InternalUsage()
 	case user.FieldTotpSecretEncrypted:
 		return m.TotpSecretEncrypted()
 	case user.FieldTotpEnabled:
@@ -39439,6 +39535,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldUsername(ctx)
 	case user.FieldNotes:
 		return m.OldNotes(ctx)
+	case user.FieldInternalUsage:
+		return m.OldInternalUsage(ctx)
 	case user.FieldTotpSecretEncrypted:
 		return m.OldTotpSecretEncrypted(ctx)
 	case user.FieldTotpEnabled:
@@ -39548,6 +39646,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetNotes(v)
+		return nil
+	case user.FieldInternalUsage:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInternalUsage(v)
 		return nil
 	case user.FieldTotpSecretEncrypted:
 		v, ok := value.(string)
@@ -39816,6 +39921,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldNotes:
 		m.ResetNotes()
+		return nil
+	case user.FieldInternalUsage:
+		m.ResetInternalUsage()
 		return nil
 	case user.FieldTotpSecretEncrypted:
 		m.ResetTotpSecretEncrypted()

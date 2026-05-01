@@ -186,6 +186,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/api-docs',
+    name: 'ApiDocs',
+    component: () => import('@/views/ApiDocsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'API Docs',
+      titleKey: 'apiDocs.title',
+      descriptionKey: 'apiDocs.description'
+    }
+  },
+  {
     path: '/redeem',
     name: 'Redeem',
     component: () => import('@/views/user/RedeemView.vue'),
@@ -356,6 +368,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Ops Monitoring',
       titleKey: 'admin.ops.title',
       descriptionKey: 'admin.ops.description'
+    }
+  },
+  {
+    path: '/admin/api-docs',
+    name: 'AdminApiDocs',
+    component: () => import('@/views/ApiDocsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'API Docs',
+      titleKey: 'apiDocs.title',
+      descriptionKey: 'apiDocs.description'
     }
   },
   {
@@ -594,6 +618,17 @@ const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
 const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result']
+const CUSTOMER_PORTAL_ALLOWED_PATHS = [
+  '/dashboard',
+  '/keys',
+  '/api-docs',
+  '/usage',
+  '/profile',
+  '/purchase',
+  '/orders',
+  '/payment',
+  '/custom'
+]
 const BACKEND_MODE_CALLBACK_PATHS = [
   '/auth/callback',
   '/auth/linuxdo/callback',
@@ -697,6 +732,15 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
+  // Normal customers only get the customer portal. Admin-only and legacy operator pages
+  // remain hidden even if a customer manually types the route into the browser.
+  if (!authStore.isAdmin && to.meta.requiresAdmin !== true) {
+    const isCustomerAllowed = CUSTOMER_PORTAL_ALLOWED_PATHS.some((path) => to.path === path || to.path.startsWith(`${path}/`))
+    if (!isCustomerAllowed) {
+      next('/dashboard')
+      return
+    }
+  }
 
   // Check payment requirement (internal payment system only)
   if (to.meta.requiresPayment) {

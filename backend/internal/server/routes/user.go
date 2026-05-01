@@ -58,20 +58,19 @@ func RegisterUserRoutes(
 		{
 			keys.GET("", h.APIKey.List)
 			keys.GET("/:id", h.APIKey.GetByID)
-			keys.POST("", h.APIKey.Create)
-			keys.PUT("/:id", h.APIKey.Update)
-			keys.DELETE("/:id", h.APIKey.Delete)
+			keys.POST("/:id/rotate", h.APIKey.Rotate)
 		}
 
-		// 用户可用分组（非管理员接口）
+		// 分组/渠道发现会暴露路由与上游配置，只允许管理员使用。
 		groups := authenticated.Group("/groups")
+		groups.Use(middleware.AdminOnly())
 		{
 			groups.GET("/available", h.APIKey.GetAvailableGroups)
 			groups.GET("/rates", h.APIKey.GetUserGroupRates)
 		}
 
-		// 用户可用渠道（非管理员接口）
 		channels := authenticated.Group("/channels")
+		channels.Use(middleware.AdminOnly())
 		{
 			channels.GET("/available", h.AvailableChannel.List)
 		}
@@ -112,8 +111,8 @@ func RegisterUserRoutes(
 			subscriptions.GET("/summary", h.Subscription.GetSummary)
 		}
 
-		// 渠道监控（用户只读）
 		monitors := authenticated.Group("/channel-monitors")
+		monitors.Use(middleware.AdminOnly())
 		{
 			monitors.GET("", h.ChannelMonitor.List)
 			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)

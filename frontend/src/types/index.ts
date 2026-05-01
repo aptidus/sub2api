@@ -85,6 +85,7 @@ export interface User {
   oidc_bound?: boolean
   wechat_bound?: boolean
   role: 'admin' | 'user' // User role for authorization
+  internal_usage: boolean // Internal/admin usage is tracked but excluded from customer profit
   balance: number // User balance for API usage
   concurrency: number // Allowed concurrent requests
   rpm_limit?: number // User-level RPM cap (0 = unlimited); effective as fallback when group has no rpm_limit
@@ -541,6 +542,7 @@ export interface ApiKey {
   name: string
   group_id: number | null
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
+  internal_usage: boolean
   ip_whitelist: string[]
   ip_blacklist: string[]
   last_used_at: string | null
@@ -568,6 +570,7 @@ export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
   custom_key?: string // Optional custom API Key
+  internal_usage?: boolean
   ip_whitelist?: string[]
   ip_blacklist?: string[]
   quota?: number // Quota limit in USD (0 = unlimited)
@@ -581,6 +584,7 @@ export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
   status?: 'active' | 'inactive'
+  internal_usage?: boolean
   ip_whitelist?: string[]
   ip_blacklist?: string[]
   quota?: number // Quota limit in USD (null = no change, 0 = unlimited)
@@ -643,7 +647,7 @@ export interface UpdateGroupRequest {
 // ==================== Account & Proxy Types ====================
 
 export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
-export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock'
+export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
 
@@ -1257,6 +1261,12 @@ export interface DashboardStats {
   total_cost: number // 累计标准计费
   total_actual_cost: number // 累计实际扣除
   total_account_cost: number // 累计账号成本
+  total_customer_requests: number
+  total_customer_actual_cost: number
+  total_customer_account_cost: number
+  total_customer_profit: number
+  total_internal_requests: number
+  total_internal_account_cost: number
 
   // 今日 Token 使用统计
   today_requests: number
@@ -1268,6 +1278,12 @@ export interface DashboardStats {
   today_cost: number // 今日标准计费
   today_actual_cost: number // 今日实际扣除
   today_account_cost: number // 今日账号成本
+  today_customer_requests: number
+  today_customer_actual_cost: number
+  today_customer_account_cost: number
+  today_customer_profit: number
+  today_internal_requests: number
+  today_internal_account_cost: number
 
   // 系统运行统计
   average_duration_ms: number // 平均响应时间

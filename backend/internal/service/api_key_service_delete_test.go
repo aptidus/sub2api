@@ -9,9 +9,11 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +30,9 @@ type apiKeyRepoStub struct {
 	getByIDErr     error   // GetKeyAndOwnerID 的错误返回值
 	deleteErr      error   // Delete 的错误返回值
 	deletedIDs     []int64 // 记录已删除的 API Key ID 列表
+	updateErr      error
+	updatedKeys    []APIKey
+	existsKeys     map[string]bool
 	updateLastUsed func(ctx context.Context, id int64, usedAt time.Time) error
 	touchedIDs     []int64
 	touchedUsedAts []time.Time
@@ -69,7 +74,15 @@ func (s *apiKeyRepoStub) GetByKeyForAuth(ctx context.Context, key string) (*APIK
 }
 
 func (s *apiKeyRepoStub) Update(ctx context.Context, key *APIKey) error {
-	panic("unexpected Update call")
+	if s.updateErr != nil {
+		return s.updateErr
+	}
+	if key != nil {
+		clone := *key
+		s.updatedKeys = append(s.updatedKeys, clone)
+		s.apiKey = &clone
+	}
+	return nil
 }
 
 // Delete 记录被删除的 API Key ID 并返回预设的错误。
@@ -94,7 +107,7 @@ func (s *apiKeyRepoStub) CountByUserID(ctx context.Context, userID int64) (int64
 }
 
 func (s *apiKeyRepoStub) ExistsByKey(ctx context.Context, key string) (bool, error) {
-	panic("unexpected ExistsByKey call")
+	return s.existsKeys[key], nil
 }
 
 func (s *apiKeyRepoStub) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]APIKey, *pagination.PaginationResult, error) {
@@ -250,6 +263,58 @@ func TestApiKeyService_Delete_Success(t *testing.T) {
 	require.Equal(t, []string{svc.authCacheKey("k")}, cache.deleteAuthKeys)
 	_, exists := svc.lastUsedTouchL1.Load(int64(42))
 	require.False(t, exists, "delete should clear touch debounce cache")
+}
+
+func TestApiKeyService_Rotate_Success(t *testing.T) {
+	repo := &apiKeyRepoStub{
+		apiKey: &APIKey{
+			ID:            42,
+			UserID:        7,
+			Key:           "sk_old",
+			Name:          "Provisioned key",
+			Status:        StatusActive,
+			InternalUsage: false,
+			Quota:         25,
+			QuotaUsed:     3.5,
+		},
+		existsKeys: map[string]bool{},
+	}
+	cache := &apiKeyCacheStub{}
+	svc := &APIKeyService{
+		apiKeyRepo: repo,
+		cache:      cache,
+		cfg: &config.Config{Default: config.DefaultConfig{
+			APIKeyPrefix: "sk-",
+		}},
+	}
+
+	rotated, err := svc.Rotate(context.Background(), 42, 7)
+	require.NoError(t, err)
+	require.NotNil(t, rotated)
+	require.NotEqual(t, "sk_old", rotated.Key)
+	require.True(t, strings.HasPrefix(rotated.Key, "sk-"))
+	require.Equal(t, "Provisioned key", rotated.Name)
+	require.Equal(t, 25.0, rotated.Quota)
+	require.Equal(t, 3.5, rotated.QuotaUsed)
+	require.Len(t, repo.updatedKeys, 1)
+	require.Equal(t, rotated.Key, repo.updatedKeys[0].Key)
+	require.ElementsMatch(t, []string{svc.authCacheKey("sk_old"), svc.authCacheKey(rotated.Key)}, cache.deleteAuthKeys)
+}
+
+func TestApiKeyService_Rotate_OwnerMismatch(t *testing.T) {
+	repo := &apiKeyRepoStub{
+		apiKey: &APIKey{ID: 42, UserID: 7, Key: "sk_old"},
+	}
+	svc := &APIKeyService{
+		apiKeyRepo: repo,
+		cfg: &config.Config{Default: config.DefaultConfig{
+			APIKeyPrefix: "sk-",
+		}},
+	}
+
+	_, err := svc.Rotate(context.Background(), 42, 8)
+	require.ErrorIs(t, err, ErrInsufficientPerms)
+	require.Empty(t, repo.updatedKeys)
 }
 
 // TestApiKeyService_Delete_NotFound 测试删除不存在的 API Key 时返回正确的错误。

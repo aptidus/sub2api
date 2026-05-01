@@ -223,6 +223,9 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 	if math.IsNaN(amt) || math.IsInf(amt, 0) {
 		return nil, nil, infraerrors.BadRequest("INVALID_AMOUNT", "invalid refund amount")
 	}
+	if err := payment.ValidateYuanAmountFloat(amt); err != nil {
+		return nil, nil, infraerrors.BadRequest("INVALID_AMOUNT", err.Error())
+	}
 	if amt <= 0 {
 		amt = o.Amount
 	}

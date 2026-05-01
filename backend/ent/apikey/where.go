@@ -95,6 +95,11 @@ func Status(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldStatus, v))
 }
 
+// InternalUsage applies equality check predicate on the "internal_usage" field. It's identical to InternalUsageEQ.
+func InternalUsage(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldInternalUsage, v))
+}
+
 // LastUsedAt applies equality check predicate on the "last_used_at" field. It's identical to LastUsedAtEQ.
 func LastUsedAt(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldLastUsedAt, v))
@@ -533,6 +538,16 @@ func StatusEqualFold(v string) predicate.APIKey {
 // StatusContainsFold applies the ContainsFold predicate on the "status" field.
 func StatusContainsFold(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldContainsFold(FieldStatus, v))
+}
+
+// InternalUsageEQ applies the EQ predicate on the "internal_usage" field.
+func InternalUsageEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldInternalUsage, v))
+}
+
+// InternalUsageNEQ applies the NEQ predicate on the "internal_usage" field.
+func InternalUsageNEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldInternalUsage, v))
 }
 
 // LastUsedAtEQ applies the EQ predicate on the "last_used_at" field.

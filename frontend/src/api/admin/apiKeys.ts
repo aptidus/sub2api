@@ -13,6 +13,16 @@ export interface UpdateApiKeyGroupResult {
   granted_group_name?: string
 }
 
+export interface UpdateApiKeyRequest {
+  group_id?: number
+  internal_usage?: boolean
+}
+
+export async function updateApiKey(id: number, updates: UpdateApiKeyRequest): Promise<UpdateApiKeyGroupResult> {
+  const { data } = await apiClient.put<UpdateApiKeyGroupResult>(`/admin/api-keys/${id}`, updates)
+  return data
+}
+
 /**
  * Update an API key's group binding
  * @param id - API Key ID
@@ -20,14 +30,21 @@ export interface UpdateApiKeyGroupResult {
  * @returns Updated API key with auto-grant info
  */
 export async function updateApiKeyGroup(id: number, groupId: number | null): Promise<UpdateApiKeyGroupResult> {
-  const { data } = await apiClient.put<UpdateApiKeyGroupResult>(`/admin/api-keys/${id}`, {
+  return updateApiKey(id, {
     group_id: groupId === null ? 0 : groupId
   })
-  return data
+}
+
+export async function updateApiKeyInternalUsage(id: number, internalUsage: boolean): Promise<UpdateApiKeyGroupResult> {
+  return updateApiKey(id, {
+    internal_usage: internalUsage
+  })
 }
 
 export const apiKeysAPI = {
-  updateApiKeyGroup
+  updateApiKey,
+  updateApiKeyGroup,
+  updateApiKeyInternalUsage
 }
 
 export default apiKeysAPI

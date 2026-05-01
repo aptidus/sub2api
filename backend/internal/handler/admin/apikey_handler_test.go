@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -92,6 +93,32 @@ func TestAdminAPIKeyHandler_UpdateGroup_BindGroup(t *testing.T) {
 	require.Equal(t, int64(2), *data.APIKey.GroupID)
 }
 
+func TestAdminAPIKeyHandler_UpdateGroup_InternalUsage(t *testing.T) {
+	router := setupAPIKeyHandler(newStubAdminService())
+	body := `{"internal_usage": true}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys/10", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			APIKey struct {
+				ID            int64 `json:"id"`
+				InternalUsage bool  `json:"internal_usage"`
+			} `json:"api_key"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.Equal(t, int64(10), resp.Data.APIKey.ID)
+	require.True(t, resp.Data.APIKey.InternalUsage)
+}
+
 func TestAdminAPIKeyHandler_UpdateGroup_Unbind(t *testing.T) {
 	svc := newStubAdminService()
 	gid := int64(2)
@@ -115,6 +142,45 @@ func TestAdminAPIKeyHandler_UpdateGroup_Unbind(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Nil(t, resp.Data.APIKey.GroupID)
+}
+
+func TestAdminAPIKeyHandler_ResetRateLimitUsage(t *testing.T) {
+	svc := newStubAdminService()
+	now := time.Now()
+	svc.apiKeys[0].Usage5h = 1.2
+	svc.apiKeys[0].Usage1d = 3.4
+	svc.apiKeys[0].Usage7d = 5.6
+	svc.apiKeys[0].Window5hStart = &now
+	svc.apiKeys[0].Window1dStart = &now
+	svc.apiKeys[0].Window7dStart = &now
+	router := setupAPIKeyHandler(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys/10", bytes.NewBufferString(`{"reset_rate_limit_usage":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data struct {
+			APIKey struct {
+				Usage5h       float64    `json:"usage_5h"`
+				Usage1d       float64    `json:"usage_1d"`
+				Usage7d       float64    `json:"usage_7d"`
+				Window5hStart *time.Time `json:"window_5h_start"`
+				Window1dStart *time.Time `json:"window_1d_start"`
+				Window7dStart *time.Time `json:"window_7d_start"`
+			} `json:"api_key"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Zero(t, resp.Data.APIKey.Usage5h)
+	require.Zero(t, resp.Data.APIKey.Usage1d)
+	require.Zero(t, resp.Data.APIKey.Usage7d)
+	require.Nil(t, resp.Data.APIKey.Window5hStart)
+	require.Nil(t, resp.Data.APIKey.Window1dStart)
+	require.Nil(t, resp.Data.APIKey.Window7dStart)
 }
 
 func TestAdminAPIKeyHandler_UpdateGroup_ServiceError(t *testing.T) {

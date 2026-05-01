@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -51,8 +52,8 @@ func (s *PaymentService) GetWebhookProviders(ctx context.Context, providerKey, o
 				}
 				return []payment.Provider{prov}, nil
 			}
-			if strings.TrimSpace(providerKey) == payment.TypeWxpay {
-				return s.getEnabledWebhookProvidersByKey(ctx, providerKey)
+			if strings.TrimSpace(providerKey) == payment.TypeWxpay || strings.TrimSpace(providerKey) == payment.TypeStripe {
+				return s.getEnabledWebhookProvidersOrRegistryFallback(ctx, providerKey)
 			}
 			if !s.webhookRegistryFallbackAllowed(ctx, providerKey) {
 				return nil, fmt.Errorf("webhook provider fallback is ambiguous for %s", providerKey)
@@ -66,8 +67,8 @@ func (s *PaymentService) GetWebhookProviders(ctx context.Context, providerKey, o
 		}
 	}
 
-	if strings.TrimSpace(providerKey) == payment.TypeWxpay {
-		return s.getEnabledWebhookProvidersByKey(ctx, providerKey)
+	if strings.TrimSpace(providerKey) == payment.TypeWxpay || strings.TrimSpace(providerKey) == payment.TypeStripe {
+		return s.getEnabledWebhookProvidersOrRegistryFallback(ctx, providerKey)
 	}
 
 	if !s.webhookRegistryFallbackAllowed(ctx, providerKey) {
@@ -114,6 +115,23 @@ func (s *PaymentService) webhookRegistryFallbackAllowed(ctx context.Context, pro
 
 func psHasPinnedProviderInstance(order *dbent.PaymentOrder) bool {
 	return order != nil && (psOrderProviderSnapshot(order) != nil || (order.ProviderInstanceID != nil && strings.TrimSpace(*order.ProviderInstanceID) != ""))
+}
+
+func (s *PaymentService) getEnabledWebhookProvidersOrRegistryFallback(ctx context.Context, providerKey string) ([]payment.Provider, error) {
+	providers, err := s.getEnabledWebhookProvidersByKey(ctx, providerKey)
+	if err == nil {
+		return providers, nil
+	}
+	if !errors.Is(err, payment.ErrProviderNotFound) || !s.webhookRegistryFallbackAllowed(ctx, providerKey) {
+		return nil, err
+	}
+
+	s.EnsureProviders(ctx)
+	prov, fallbackErr := s.registry.GetProviderByKey(providerKey)
+	if fallbackErr != nil {
+		return nil, err
+	}
+	return []payment.Provider{prov}, nil
 }
 
 func (s *PaymentService) getEnabledWebhookProvidersByKey(ctx context.Context, providerKey string) ([]payment.Provider, error) {

@@ -206,6 +206,23 @@ func TestCalculateStatsCost_TokenBilling(t *testing.T) {
 	require.InDelta(t, 0.2, *result, 1e-12)
 }
 
+func TestCalculateStatsCost_TokenBilling_UsesExactMoneyRounding(t *testing.T) {
+	pricing := &ChannelModelPricing{
+		BillingMode:     BillingModeToken,
+		InputPrice:      testPtrFloat64(0.1),
+		OutputPrice:     testPtrFloat64(0.2),
+		CacheWritePrice: testPtrFloat64(0.3),
+	}
+	tokens := UsageTokens{
+		InputTokens:         1,
+		OutputTokens:        1,
+		CacheCreationTokens: 1,
+	}
+	result := calculateStatsCost(pricing, tokens, 1)
+	require.NotNil(t, result)
+	require.Equal(t, 0.6, *result)
+}
+
 func TestCalculateStatsCost_TokenBilling_WithCache(t *testing.T) {
 	pricing := &ChannelModelPricing{
 		BillingMode:     BillingModeToken,

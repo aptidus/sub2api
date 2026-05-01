@@ -102,6 +102,13 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"total_tokens":                stats.TotalTokens,
 		"total_cost":                  stats.TotalCost,       // 标准计费
 		"total_actual_cost":           stats.TotalActualCost, // 实际扣除
+		"total_account_cost":          stats.TotalAccountCost,
+		"total_customer_requests":     stats.TotalCustomerRequests,
+		"total_customer_actual_cost":  stats.TotalCustomerActualCost,
+		"total_customer_account_cost": stats.TotalCustomerAccountCost,
+		"total_customer_profit":       stats.TotalCustomerProfit,
+		"total_internal_requests":     stats.TotalInternalRequests,
+		"total_internal_account_cost": stats.TotalInternalAccountCost,
 
 		// 今日 Token 使用统计
 		"today_requests":              stats.TodayRequests,
@@ -112,6 +119,13 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"today_tokens":                stats.TodayTokens,
 		"today_cost":                  stats.TodayCost,       // 今日标准计费
 		"today_actual_cost":           stats.TodayActualCost, // 今日实际扣除
+		"today_account_cost":          stats.TodayAccountCost,
+		"today_customer_requests":     stats.TodayCustomerRequests,
+		"today_customer_actual_cost":  stats.TodayCustomerActualCost,
+		"today_customer_account_cost": stats.TodayCustomerAccountCost,
+		"today_customer_profit":       stats.TodayCustomerProfit,
+		"today_internal_requests":     stats.TodayInternalRequests,
+		"today_internal_account_cost": stats.TodayInternalAccountCost,
 
 		// 系统运行统计
 		"average_duration_ms": stats.AverageDurationMs,

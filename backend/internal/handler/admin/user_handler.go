@@ -40,6 +40,7 @@ type CreateUserRequest struct {
 	Password      string  `json:"password" binding:"required,min=6"`
 	Username      string  `json:"username"`
 	Notes         string  `json:"notes"`
+	InternalUsage bool    `json:"internal_usage"`
 	Balance       float64 `json:"balance"`
 	Concurrency   int     `json:"concurrency"`
 	RPMLimit      int     `json:"rpm_limit"`
@@ -53,6 +54,7 @@ type UpdateUserRequest struct {
 	Password      string   `json:"password" binding:"omitempty,min=6"`
 	Username      *string  `json:"username"`
 	Notes         *string  `json:"notes"`
+	InternalUsage *bool    `json:"internal_usage"`
 	Balance       *float64 `json:"balance"`
 	Concurrency   *int     `json:"concurrency"`
 	RPMLimit      *int     `json:"rpm_limit"`
@@ -75,6 +77,7 @@ type AdminCreateUserAPIKeyRequest struct {
 	Name          string   `json:"name" binding:"required"`
 	GroupID       *int64   `json:"group_id"`
 	CustomKey     *string  `json:"custom_key"`
+	InternalUsage bool     `json:"internal_usage"`
 	IPWhitelist   []string `json:"ip_whitelist"`
 	IPBlacklist   []string `json:"ip_blacklist"`
 	Quota         *float64 `json:"quota"`
@@ -259,6 +262,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		Password:      req.Password,
 		Username:      req.Username,
 		Notes:         req.Notes,
+		InternalUsage: req.InternalUsage,
 		Balance:       req.Balance,
 		Concurrency:   req.Concurrency,
 		RPMLimit:      req.RPMLimit,
@@ -293,6 +297,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		Password:      req.Password,
 		Username:      req.Username,
 		Notes:         req.Notes,
+		InternalUsage: req.InternalUsage,
 		Balance:       req.Balance,
 		Concurrency:   req.Concurrency,
 		RPMLimit:      req.RPMLimit,
@@ -407,6 +412,7 @@ func (h *UserHandler) CreateUserAPIKey(c *gin.Context) {
 		Name:          req.Name,
 		GroupID:       req.GroupID,
 		CustomKey:     req.CustomKey,
+		InternalUsage: req.InternalUsage,
 		IPWhitelist:   req.IPWhitelist,
 		IPBlacklist:   req.IPBlacklist,
 		ExpiresInDays: req.ExpiresInDays,

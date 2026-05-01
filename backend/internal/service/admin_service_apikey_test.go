@@ -533,3 +533,17 @@ func TestAdminService_AdminUpdateAPIKeyGroupID_Unbind_NoAllowedGroupUpdate(t *te
 	require.False(t, userRepo.addGroupCalled)
 	require.False(t, got.AutoGrantedGroupAccess)
 }
+
+func TestAdminService_AdminUpdateAPIKeyInternalUsage(t *testing.T) {
+	existing := &APIKey{ID: 1, UserID: 42, Key: "sk-test", InternalUsage: false}
+	apiKeyRepo := &apiKeyRepoStubForGroupUpdate{key: existing}
+	cache := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{apiKeyRepo: apiKeyRepo, authCacheInvalidator: cache}
+
+	got, err := svc.AdminUpdateAPIKeyInternalUsage(context.Background(), 1, true)
+	require.NoError(t, err)
+	require.True(t, got.InternalUsage)
+	require.NotNil(t, apiKeyRepo.updated)
+	require.True(t, apiKeyRepo.updated.InternalUsage)
+	require.Equal(t, []string{"sk-test"}, cache.keys)
+}

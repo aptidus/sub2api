@@ -47,6 +47,9 @@ func (APIKey) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.Bool("internal_usage").
+			Default(false).
+			Comment("When true, usage from this API key is tracked as internal cost and excluded from customer profit"),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().

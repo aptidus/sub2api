@@ -3,7 +3,11 @@ package service
 import (
 	"context"
 	"strings"
+
+	"github.com/shopspring/decimal"
 )
+
+const accountStatsCostScale = 10
 
 // resolveAccountStatsCost 计算账号统计定价费用。
 // 返回 nil 表示不覆盖，使用默认公式（total_cost × account_rate_multiplier）。
@@ -44,11 +48,11 @@ func resolveAccountStatsCost(
 
 	// 优先级 2：渠道开启"应用模型定价到账号统计"时，直接使用客户计费（倍率前）
 	if channel.ApplyPricingToAccountStats {
-		cost := totalCost
-		if cost <= 0 {
+		cost := decimal.NewFromFloat(totalCost)
+		if cost.Cmp(decimal.Zero) <= 0 {
 			return nil
 		}
-		return &cost
+		return decimalFloatPtr(cost)
 	}
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
@@ -65,15 +69,15 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 	if err != nil || pricing == nil {
 		return nil
 	}
-	cost := float64(tokens.InputTokens)*pricing.InputPricePerToken +
-		float64(tokens.OutputTokens)*pricing.OutputPricePerToken +
-		float64(tokens.CacheCreationTokens)*pricing.CacheCreationPricePerToken +
-		float64(tokens.CacheReadTokens)*pricing.CacheReadPricePerToken +
-		float64(tokens.ImageOutputTokens)*pricing.ImageOutputPricePerToken
-	if cost <= 0 {
+	cost := decimal.NewFromInt(int64(tokens.InputTokens)).Mul(decimal.NewFromFloat(pricing.InputPricePerToken)).
+		Add(decimal.NewFromInt(int64(tokens.OutputTokens)).Mul(decimal.NewFromFloat(pricing.OutputPricePerToken))).
+		Add(decimal.NewFromInt(int64(tokens.CacheCreationTokens)).Mul(decimal.NewFromFloat(pricing.CacheCreationPricePerToken))).
+		Add(decimal.NewFromInt(int64(tokens.CacheReadTokens)).Mul(decimal.NewFromFloat(pricing.CacheReadPricePerToken))).
+		Add(decimal.NewFromInt(int64(tokens.ImageOutputTokens)).Mul(decimal.NewFromFloat(pricing.ImageOutputPricePerToken)))
+	if cost.Cmp(decimal.Zero) <= 0 {
 		return nil
 	}
-	return &cost
+	return decimalFloatPtr(cost)
 }
 
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
@@ -176,8 +180,8 @@ func calculatePerRequestStatsCost(pricing *ChannelModelPricing, requestCount int
 	if pricing.PerRequestPrice == nil || *pricing.PerRequestPrice <= 0 {
 		return nil
 	}
-	cost := *pricing.PerRequestPrice * float64(requestCount)
-	return &cost
+	cost := decimal.NewFromFloat(*pricing.PerRequestPrice).Mul(decimal.NewFromInt(int64(requestCount)))
+	return decimalFloatPtr(cost)
 }
 
 // calculateTokenStatsCost Token 计费。
@@ -197,21 +201,21 @@ func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens) *
 			}
 		}
 	}
-	deref := func(ptr *float64) float64 {
+	deref := func(ptr *float64) decimal.Decimal {
 		if ptr == nil {
-			return 0
+			return decimal.Zero
 		}
-		return *ptr
+		return decimal.NewFromFloat(*ptr)
 	}
-	cost := float64(tokens.InputTokens)*deref(p.InputPrice) +
-		float64(tokens.OutputTokens)*deref(p.OutputPrice) +
-		float64(tokens.CacheCreationTokens)*deref(p.CacheWritePrice) +
-		float64(tokens.CacheReadTokens)*deref(p.CacheReadPrice) +
-		float64(tokens.ImageOutputTokens)*deref(p.ImageOutputPrice)
-	if cost <= 0 {
+	cost := decimal.NewFromInt(int64(tokens.InputTokens)).Mul(deref(p.InputPrice)).
+		Add(decimal.NewFromInt(int64(tokens.OutputTokens)).Mul(deref(p.OutputPrice))).
+		Add(decimal.NewFromInt(int64(tokens.CacheCreationTokens)).Mul(deref(p.CacheWritePrice))).
+		Add(decimal.NewFromInt(int64(tokens.CacheReadTokens)).Mul(deref(p.CacheReadPrice))).
+		Add(decimal.NewFromInt(int64(tokens.ImageOutputTokens)).Mul(deref(p.ImageOutputPrice)))
+	if cost.Cmp(decimal.Zero) <= 0 {
 		return nil
 	}
-	return &cost
+	return decimalFloatPtr(cost)
 }
 
 // applyAccountStatsCost resolves the account stats cost for a usage log entry.
@@ -233,4 +237,10 @@ func applyAccountStatsCost(
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
 		ctx, cs, bs, accountID, groupID, model, tokens, 1, totalCost,
 	)
+}
+
+func decimalFloatPtr(v decimal.Decimal) *float64 {
+	rounded := v.Round(accountStatsCostScale)
+	out := rounded.InexactFloat64()
+	return &out
 }

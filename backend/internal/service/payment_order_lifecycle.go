@@ -396,6 +396,9 @@ func (s *PaymentService) createProviderFromInstance(ctx context.Context, inst *d
 	if inst == nil {
 		return nil, fmt.Errorf("payment provider instance is missing")
 	}
+	if s == nil || s.loadBalancer == nil {
+		return nil, fmt.Errorf("payment load balancer is not configured")
+	}
 
 	cfg, err := s.loadBalancer.GetInstanceConfig(ctx, int64(inst.ID))
 	if err != nil {

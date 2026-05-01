@@ -63,6 +63,9 @@ func (User) Fields() []ent.Field {
 		field.String("notes").
 			SchemaType(map[string]string{dialect.Postgres: "text"}).
 			Default(""),
+		field.Bool("internal_usage").
+			Default(false).
+			Comment("When true, this user's usage is tracked as internal cost and excluded from customer profit"),
 
 		// TOTP 双因素认证字段
 		field.String("totp_secret_encrypted").

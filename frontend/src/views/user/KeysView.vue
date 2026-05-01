@@ -11,12 +11,6 @@
               @search="onFilterChange"
             />
             <Select
-              :model-value="filterGroupId"
-              class="w-40"
-              :options="groupFilterOptions"
-              @update:model-value="onGroupFilterChange"
-            />
-            <Select
               :model-value="filterStatus"
               class="w-40"
               :options="statusFilterOptions"
@@ -41,14 +35,14 @@
         >
           <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
         </button>
-        <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
-          <Icon name="plus" size="md" class="mr-2" />
-          {{ t('keys.createKey') }}
-        </button>
       </div>
       </template>
 
       <template #table>
+        <div class="mb-4 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-950 dark:border-cyan-900/60 dark:bg-cyan-950/40 dark:text-cyan-100" data-tour="keys-provisioned-info">
+          <div class="font-semibold">{{ t('keys.provisionedTitle') }}</div>
+          <div class="mt-1 leading-6">{{ t('keys.provisionedDescription') }}</div>
+        </div>
         <DataTable
           :columns="columns"
           :data="apiKeys"
@@ -311,7 +305,6 @@
 
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
-              <!-- Use Key Button -->
               <button
                 @click="openUseKeyModal(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
@@ -319,44 +312,12 @@
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
               </button>
-              <!-- Import to CC Switch Button -->
               <button
-                v-if="!publicSettings?.hide_ccs_import_button"
-                @click="importToCcswitch(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                @click="confirmRotate(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-cyan-900/20 dark:hover:text-cyan-400"
               >
-                <Icon name="upload" size="sm" />
-                <span class="text-xs">{{ t('keys.importToCcSwitch') }}</span>
-              </button>
-              <!-- Toggle Status Button -->
-              <button
-                @click="toggleKeyStatus(row)"
-                :class="[
-                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 transition-colors',
-                  row.status === 'active'
-                    ? 'text-gray-500 hover:bg-yellow-50 hover:text-yellow-600 dark:hover:bg-yellow-900/20 dark:hover:text-yellow-400'
-                    : 'text-gray-500 hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400'
-                ]"
-              >
-                <Icon v-if="row.status === 'active'" name="ban" size="sm" />
-                <Icon v-else name="checkCircle" size="sm" />
-                <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
-              </button>
-              <!-- Edit Button -->
-              <button
-                @click="editKey(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-              >
-                <Icon name="edit" size="sm" />
-                <span class="text-xs">{{ t('common.edit') }}</span>
-              </button>
-              <!-- Delete Button -->
-              <button
-                @click="confirmDelete(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-              >
-                <Icon name="trash" size="sm" />
-                <span class="text-xs">{{ t('common.delete') }}</span>
+                <Icon name="refresh" size="sm" />
+                <span class="text-xs">{{ t('keys.rotateKey') }}</span>
               </button>
             </div>
           </template>
@@ -364,9 +325,7 @@
           <template #empty>
             <EmptyState
               :title="t('keys.noKeysYet')"
-              :description="t('keys.createFirstKey')"
-              :action-text="t('keys.createKey')"
-              @action="showCreateModal = true"
+              :description="t('keys.noProvisionedKey')"
             />
           </template>
         </DataTable>
@@ -896,6 +855,18 @@
       @cancel="showDeleteDialog = false"
     />
 
+    <!-- Rotate Key Confirmation Dialog -->
+    <ConfirmDialog
+      :show="showRotateDialog"
+      :title="t('keys.rotateConfirmTitle')"
+      :message="t('keys.rotateConfirmMessage', { name: selectedKey?.name })"
+      :confirm-text="t('keys.rotateKey')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="rotateSelectedKey"
+      @cancel="showRotateDialog = false"
+    />
+
     <!-- Reset Quota Confirmation Dialog -->
     <ConfirmDialog
       :show="showResetQuotaDialog"
@@ -1053,7 +1024,7 @@
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
-import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
+import { keysAPI, authAPI, usageAPI } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import DataTable from '@/components/common/DataTable.vue'
@@ -1098,10 +1069,7 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
   { key: 'key', label: t('keys.apiKey'), sortable: false },
-  { key: 'group', label: t('keys.group'), sortable: false },
   { key: 'usage', label: t('keys.usage'), sortable: false },
-  { key: 'rate_limit', label: t('keys.rateLimitColumn'), sortable: false },
-  { key: 'expires_at', label: t('keys.expiresAt'), sortable: true },
   { key: 'status', label: t('common.status'), sortable: true },
   { key: 'last_used_at', label: t('keys.lastUsedAt'), sortable: true },
   { key: 'created_at', label: t('keys.created'), sortable: true },
@@ -1131,11 +1099,11 @@ const sortState = ref({
 // Filter state
 const filterSearch = ref('')
 const filterStatus = ref('')
-const filterGroupId = ref<string | number>('')
 
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
+const showRotateDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
@@ -1207,13 +1175,6 @@ const statusOptions = computed(() => [
   { value: 'inactive', label: t('common.inactive') }
 ])
 
-// Filter dropdown options
-const groupFilterOptions = computed(() => [
-  { value: '', label: t('keys.allGroups') },
-  { value: 0, label: t('keys.noGroup') },
-  ...groups.value.map((g) => ({ value: g.id, label: g.name }))
-])
-
 const statusFilterOptions = computed(() => [
   { value: '', label: t('keys.allStatus') },
   { value: 'active', label: t('keys.status.active') },
@@ -1225,11 +1186,6 @@ const statusFilterOptions = computed(() => [
 const onFilterChange = () => {
   pagination.value.page = 1
   loadApiKeys()
-}
-
-const onGroupFilterChange = (value: string | number | boolean | null) => {
-  filterGroupId.value = value as string | number
-  onFilterChange()
 }
 
 const onStatusFilterChange = (value: string | number | boolean | null) => {
@@ -1294,7 +1250,6 @@ const loadApiKeys = async () => {
     } = {}
     if (filterSearch.value) filters.search = filterSearch.value
     if (filterStatus.value) filters.status = filterStatus.value
-    if (filterGroupId.value !== '') filters.group_id = filterGroupId.value
     filters.sort_by = sortState.value.sort_by
     filters.sort_order = sortState.value.sort_order
 
@@ -1328,22 +1283,6 @@ const loadApiKeys = async () => {
     if (abortController === controller) {
       loading.value = false
     }
-  }
-}
-
-const loadGroups = async () => {
-  try {
-    groups.value = await userGroupsAPI.getAvailable()
-  } catch (error) {
-    console.error('Failed to load groups:', error)
-  }
-}
-
-const loadUserGroupRates = async () => {
-  try {
-    userGroupRates.value = await userGroupsAPI.getUserGroupRates()
-  } catch (error) {
-    console.error('Failed to load user group rates:', error)
   }
 }
 
@@ -1381,45 +1320,6 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
   sortState.value.sort_order = order
   pagination.value.page = 1
   loadApiKeys()
-}
-
-const editKey = (key: ApiKey) => {
-  selectedKey.value = key
-  const hasIPRestriction = (key.ip_whitelist?.length > 0) || (key.ip_blacklist?.length > 0)
-  const hasExpiration = !!key.expires_at
-  formData.value = {
-    name: key.name,
-    group_id: key.group_id,
-    status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
-    use_custom_key: false,
-    custom_key: '',
-    enable_ip_restriction: hasIPRestriction,
-    ip_whitelist: (key.ip_whitelist || []).join('\n'),
-    ip_blacklist: (key.ip_blacklist || []).join('\n'),
-    enable_quota: key.quota > 0,
-    quota: key.quota > 0 ? key.quota : null,
-    enable_rate_limit: (key.rate_limit_5h > 0) || (key.rate_limit_1d > 0) || (key.rate_limit_7d > 0),
-    rate_limit_5h: key.rate_limit_5h || null,
-    rate_limit_1d: key.rate_limit_1d || null,
-    rate_limit_7d: key.rate_limit_7d || null,
-    enable_expiration: hasExpiration,
-    expiration_preset: 'custom',
-    expiration_date: key.expires_at ? formatDateTimeLocal(key.expires_at) : ''
-  }
-  showEditModal.value = true
-}
-
-const toggleKeyStatus = async (key: ApiKey) => {
-  const newStatus = key.status === 'active' ? 'inactive' : 'active'
-  try {
-    await keysAPI.toggleStatus(key.id, newStatus)
-    appStore.showSuccess(
-      newStatus === 'active' ? t('keys.keyEnabledSuccess') : t('keys.keyDisabledSuccess')
-    )
-    loadApiKeys()
-  } catch (error) {
-    appStore.showError(t('keys.failedToUpdateStatus'))
-  }
 }
 
 const openGroupSelector = (key: ApiKey) => {
@@ -1476,9 +1376,27 @@ const closeGroupSelector = (event: MouseEvent) => {
   }
 }
 
-const confirmDelete = (key: ApiKey) => {
+const confirmRotate = (key: ApiKey) => {
   selectedKey.value = key
-  showDeleteDialog.value = true
+  showRotateDialog.value = true
+}
+
+const rotateSelectedKey = async () => {
+  if (!selectedKey.value) return
+  showRotateDialog.value = false
+  submitting.value = true
+  try {
+    const rotated = await keysAPI.rotate(selectedKey.value.id)
+    appStore.showSuccess(t('keys.keyRotatedSuccess'))
+    await copyToClipboard(rotated.key, rotated.id)
+    await loadApiKeys()
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.detail || t('keys.failedToRotate')
+    appStore.showError(errorMsg)
+  } finally {
+    submitting.value = false
+    selectedKey.value = null
+  }
 }
 
 const handleSubmit = async () => {
@@ -1686,20 +1604,6 @@ const resetRateLimitUsage = async () => {
   }
 }
 
-const importToCcswitch = (row: ApiKey) => {
-  const platform = row.group?.platform || 'anthropic'
-
-  // For antigravity platform, show client selection dialog
-  if (platform === 'antigravity') {
-    pendingCcsRow.value = row
-    showCcsClientSelect.value = true
-    return
-  }
-
-  // For other platforms, execute directly
-  executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
-}
-
 const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
   const baseUrl = publicSettings.value?.api_base_url || window.location.origin
   const platform = row.group?.platform || 'anthropic'
@@ -1802,8 +1706,6 @@ function formatResetTime(resetAt: string | null): string {
 
 onMounted(() => {
   loadApiKeys()
-  loadGroups()
-  loadUserGroupRates()
   loadPublicSettings()
   document.addEventListener('click', closeGroupSelector)
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)

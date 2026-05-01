@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"math"
 	"sort"
 	"strconv"
 	"time"
@@ -12,6 +11,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
+	"github.com/shopspring/decimal"
 )
 
 // --- Dashboard & Analytics ---
@@ -54,26 +54,35 @@ func (s *PaymentService) GetDashboardStats(ctx context.Context, days int) (*Dash
 }
 
 func computeBasicStats(st *DashboardStats, orders []*dbent.PaymentOrder, todayStart time.Time) {
-	var totalAmount, todayAmount float64
+	totalAmount := decimal.Zero
+	todayAmount := decimal.Zero
 	var todayCount int
 	for _, o := range orders {
-		totalAmount += o.PayAmount
+		amt := decimal.NewFromFloat(o.PayAmount)
+		totalAmount = totalAmount.Add(amt)
 		if o.PaidAt != nil && !o.PaidAt.Before(todayStart) {
-			todayAmount += o.PayAmount
+			todayAmount = todayAmount.Add(amt)
 			todayCount++
 		}
 	}
-	st.TotalAmount = math.Round(totalAmount*100) / 100
-	st.TodayAmount = math.Round(todayAmount*100) / 100
+	st.TotalAmount = totalAmount.Round(2).InexactFloat64()
+	st.TodayAmount = todayAmount.Round(2).InexactFloat64()
 	st.TotalCount = len(orders)
 	st.TodayCount = todayCount
 	if st.TotalCount > 0 {
-		st.AvgAmount = math.Round(totalAmount/float64(st.TotalCount)*100) / 100
+		st.AvgAmount = totalAmount.
+			Div(decimal.NewFromInt(int64(st.TotalCount))).
+			Round(2).
+			InexactFloat64()
 	}
 }
 
 func buildDailySeries(orders []*dbent.PaymentOrder, since time.Time, days int) []DailyStats {
-	dailyMap := make(map[string]*DailyStats)
+	type dailyAccum struct {
+		stats  DailyStats
+		amount decimal.Decimal
+	}
+	dailyMap := make(map[string]*dailyAccum)
 	for _, o := range orders {
 		if o.PaidAt == nil {
 			continue
@@ -81,18 +90,18 @@ func buildDailySeries(orders []*dbent.PaymentOrder, since time.Time, days int) [
 		date := o.PaidAt.Format("2006-01-02")
 		ds, ok := dailyMap[date]
 		if !ok {
-			ds = &DailyStats{Date: date}
+			ds = &dailyAccum{stats: DailyStats{Date: date}}
 			dailyMap[date] = ds
 		}
-		ds.Amount += o.PayAmount
-		ds.Count++
+		ds.amount = ds.amount.Add(decimal.NewFromFloat(o.PayAmount))
+		ds.stats.Count++
 	}
 	series := make([]DailyStats, 0, days)
 	for i := 0; i < days; i++ {
 		date := since.AddDate(0, 0, i+1).Format("2006-01-02")
 		if ds, ok := dailyMap[date]; ok {
-			ds.Amount = math.Round(ds.Amount*100) / 100
-			series = append(series, *ds)
+			ds.stats.Amount = ds.amount.Round(2).InexactFloat64()
+			series = append(series, ds.stats)
 		} else {
 			series = append(series, DailyStats{Date: date})
 		}
@@ -101,41 +110,48 @@ func buildDailySeries(orders []*dbent.PaymentOrder, since time.Time, days int) [
 }
 
 func buildMethodDistribution(orders []*dbent.PaymentOrder) []PaymentMethodStat {
-	methodMap := make(map[string]*PaymentMethodStat)
+	type methodAccum struct {
+		stats  PaymentMethodStat
+		amount decimal.Decimal
+	}
+	methodMap := make(map[string]*methodAccum)
 	for _, o := range orders {
 		ms, ok := methodMap[o.PaymentType]
 		if !ok {
-			ms = &PaymentMethodStat{Type: o.PaymentType}
+			ms = &methodAccum{stats: PaymentMethodStat{Type: o.PaymentType}}
 			methodMap[o.PaymentType] = ms
 		}
-		ms.Amount += o.PayAmount
-		ms.Count++
+		ms.amount = ms.amount.Add(decimal.NewFromFloat(o.PayAmount))
+		ms.stats.Count++
 	}
 	methods := make([]PaymentMethodStat, 0, len(methodMap))
 	for _, ms := range methodMap {
-		ms.Amount = math.Round(ms.Amount*100) / 100
-		methods = append(methods, *ms)
+		ms.stats.Amount = ms.amount.Round(2).InexactFloat64()
+		methods = append(methods, ms.stats)
 	}
 	return methods
 }
 
 func buildTopUsers(orders []*dbent.PaymentOrder) []TopUserStat {
-	userMap := make(map[int64]*TopUserStat)
+	type userAccum struct {
+		stats  TopUserStat
+		amount decimal.Decimal
+	}
+	userMap := make(map[int64]*userAccum)
 	for _, o := range orders {
 		us, ok := userMap[o.UserID]
 		if !ok {
-			us = &TopUserStat{UserID: o.UserID, Email: o.UserEmail}
+			us = &userAccum{stats: TopUserStat{UserID: o.UserID, Email: o.UserEmail}}
 			userMap[o.UserID] = us
 		}
-		us.Amount += o.PayAmount
+		us.amount = us.amount.Add(decimal.NewFromFloat(o.PayAmount))
 	}
-	userList := make([]*TopUserStat, 0, len(userMap))
+	userList := make([]*userAccum, 0, len(userMap))
 	for _, us := range userMap {
-		us.Amount = math.Round(us.Amount*100) / 100
 		userList = append(userList, us)
 	}
 	sort.Slice(userList, func(i, j int) bool {
-		return userList[i].Amount > userList[j].Amount
+		return userList[i].amount.GreaterThan(userList[j].amount)
 	})
 	limit := topUsersLimit
 	if len(userList) < limit {
@@ -143,7 +159,8 @@ func buildTopUsers(orders []*dbent.PaymentOrder) []TopUserStat {
 	}
 	result := make([]TopUserStat, 0, limit)
 	for i := 0; i < limit; i++ {
-		result = append(result, *userList[i])
+		userList[i].stats.Amount = userList[i].amount.Round(2).InexactFloat64()
+		result = append(result, userList[i].stats)
 	}
 	return result
 }

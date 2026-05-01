@@ -108,6 +108,24 @@ function simulateGuard(
     return '/dashboard'
   }
 
+  if (!authState.isAdmin && toMeta.requiresAdmin !== true) {
+    const allowed = [
+      '/dashboard',
+      '/keys',
+      '/api-docs',
+      '/usage',
+      '/profile',
+      '/purchase',
+      '/orders',
+      '/payment',
+      '/custom',
+    ]
+    const isAllowed = allowed.some((path) => toPath === path || toPath.startsWith(`${path}/`))
+    if (!isAllowed) {
+      return '/dashboard'
+    }
+  }
+
   // 简易模式限制
   if (authState.isSimpleMode) {
     const restrictedPaths = [
@@ -218,6 +236,26 @@ describe('路由守卫逻辑', () => {
 
     it('访问 /admin/users 被拒绝', () => {
       const redirect = simulateGuard('/admin/users', { requiresAdmin: true }, authState)
+      expect(redirect).toBe('/dashboard')
+    })
+
+    it('访问 /keys 允许通过，用于复制或轮换已分配密钥', () => {
+      const redirect = simulateGuard('/keys', {}, authState)
+      expect(redirect).toBeNull()
+    })
+
+    it('访问 /api-docs 允许通过，用于查看完整 API 文档', () => {
+      const redirect = simulateGuard('/api-docs', {}, authState)
+      expect(redirect).toBeNull()
+    })
+
+    it('访问旧运营页 /available-channels 被拒绝', () => {
+      const redirect = simulateGuard('/available-channels', {}, authState)
+      expect(redirect).toBe('/dashboard')
+    })
+
+    it('访问旧返佣页 /affiliate 被拒绝', () => {
+      const redirect = simulateGuard('/affiliate', {}, authState)
       expect(redirect).toBe('/dashboard')
     })
   })
