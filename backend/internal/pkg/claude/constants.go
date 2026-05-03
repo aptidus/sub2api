@@ -175,7 +175,10 @@ const DefaultTestModel = "claude-sonnet-4-5-20250929"
 var ModelIDOverrides = map[string]string{
 	"claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
 	"claude-opus-4-5":   "claude-opus-4-5-20251101",
-	"claude-haiku-4-5":  "claude-haiku-4-5-20251001",
+	// Compatibility alias: older clients can still send Opus 4.6 while the
+	// production account whitelist remains latest-only on Opus 4.7.
+	"claude-opus-4-6":  "claude-opus-4-7",
+	"claude-haiku-4-5": "claude-haiku-4-5-20251001",
 }
 
 // ModelIDReverseOverrides 用于将上游模型 ID 还原为短名

@@ -163,6 +163,7 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Status:      StatusActive,
 		ExpiresAt:   req.ExpiresAt,
 	}
+	EnsureAnthropicOAuthTLSFingerprintEnabled(account)
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	} else {
@@ -253,6 +254,7 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 
 	if req.Extra != nil {
 		account.Extra = *req.Extra
+		EnsureAnthropicOAuthTLSFingerprintEnabled(account)
 	}
 
 	if req.ProxyID != nil {
@@ -276,6 +278,7 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	}
+	EnsureAnthropicOAuthTLSFingerprintEnabled(account)
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if req.GroupIDs != nil {

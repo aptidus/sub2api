@@ -694,6 +694,13 @@ export default {
     quota: '额度',
     lastUsedAt: '上次使用时间',
     useKey: '使用密钥',
+    availableModels: '模型',
+    availableModelsTitle: '可用模型',
+    availableModelsDescription: '这里显示的是使用此 API 密钥调用 /v1/models 返回的模型。未列出的模型不应被此密钥路由。',
+    modelsForKey: '{name} 的模型',
+    loadingModels: '正在加载模型...',
+    failedToLoadModels: '加载可用模型失败',
+    noAvailableModels: '此密钥未返回任何模型。',
     useKeyModal: {
       title: '使用 API 密钥',
       description: '将以下环境变量添加到您的终端配置文件或直接在终端中运行。',

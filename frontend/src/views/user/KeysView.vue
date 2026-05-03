@@ -306,6 +306,13 @@
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
               <button
+                @click="loadModelsForKey(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+              >
+                <Icon name="server" size="sm" />
+                <span class="text-xs">{{ t('keys.availableModels') }}</span>
+              </button>
+              <button
                 @click="openUseKeyModal(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
               >
@@ -901,6 +908,67 @@
       @close="closeUseKeyModal"
     />
 
+    <!-- Available Models Modal -->
+    <BaseDialog
+      :show="showModelsDialog"
+      :title="t('keys.availableModelsTitle')"
+      width="wide"
+      @close="closeModelsDialog"
+    >
+      <div class="space-y-4">
+        <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-100">
+          <div class="font-semibold">
+            {{ t('keys.modelsForKey', { name: selectedKey?.name || t('keys.apiKey') }) }}
+          </div>
+          <div class="mt-1 leading-6">{{ t('keys.availableModelsDescription') }}</div>
+        </div>
+
+        <div v-if="modelsLoading" class="flex items-center gap-2 py-6 text-sm text-gray-500 dark:text-gray-400">
+          <Icon name="refresh" size="sm" class="animate-spin" />
+          {{ t('keys.loadingModels') }}
+        </div>
+
+        <div
+          v-else-if="modelsError"
+          class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+        >
+          {{ modelsError }}
+        </div>
+
+        <div
+          v-else-if="selectedKeyModels.length === 0"
+          class="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400"
+        >
+          {{ t('keys.noAvailableModels') }}
+        </div>
+
+        <div v-else class="max-h-[50vh] overflow-y-auto rounded-xl border border-gray-200 dark:border-dark-700">
+          <div class="divide-y divide-gray-100 dark:divide-dark-700">
+            <div
+              v-for="model in selectedKeyModels"
+              :key="model.id"
+              class="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <code class="break-all rounded-lg bg-gray-100 px-2 py-1 text-sm text-gray-900 dark:bg-dark-700 dark:text-gray-100">
+                {{ model.id }}
+              </code>
+              <span v-if="model.owned_by" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ model.owned_by }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end">
+          <button @click="closeModelsDialog" class="btn btn-secondary">
+            {{ t('common.close') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <!-- CCS Client Selection Dialog for Antigravity -->
     <BaseDialog
       :show="showCcsClientSelect"
@@ -1062,6 +1130,15 @@ interface GroupOption {
   platform: GroupPlatform
 }
 
+interface KeyModel {
+  id: string
+  object?: string
+  type?: string
+  display_name?: string
+  created_at?: string
+  owned_by?: string
+}
+
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
@@ -1107,9 +1184,13 @@ const showRotateDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
+const showModelsDialog = ref(false)
 const showCcsClientSelect = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
+const selectedKeyModels = ref<KeyModel[]>([])
+const modelsLoading = ref(false)
+const modelsError = ref('')
 const copiedKeyId = ref<number | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
@@ -1301,6 +1382,44 @@ const openUseKeyModal = (key: ApiKey) => {
 
 const closeUseKeyModal = () => {
   showUseKeyModal.value = false
+  selectedKey.value = null
+}
+
+const getGatewayBaseURL = () => {
+  const configuredBaseURL = publicSettings.value?.api_base_url?.trim()
+  return (configuredBaseURL || window.location.origin).replace(/\/+$/, '')
+}
+
+const loadModelsForKey = async (key: ApiKey) => {
+  selectedKey.value = key
+  selectedKeyModels.value = []
+  modelsError.value = ''
+  showModelsDialog.value = true
+  modelsLoading.value = true
+
+  try {
+    const response = await fetch(`${getGatewayBaseURL()}/v1/models`, {
+      headers: {
+        Authorization: `Bearer ${key.key}`
+      }
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) {
+      const message = payload?.error?.message || payload?.message || `${response.status} ${response.statusText}`
+      throw new Error(message)
+    }
+    selectedKeyModels.value = Array.isArray(payload?.data) ? payload.data : []
+  } catch (error) {
+    modelsError.value = error instanceof Error ? error.message : t('keys.failedToLoadModels')
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
+const closeModelsDialog = () => {
+  showModelsDialog.value = false
+  selectedKeyModels.value = []
+  modelsError.value = ''
   selectedKey.value = null
 }
 

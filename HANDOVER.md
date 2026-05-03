@@ -1,5 +1,86 @@
 # Sub2API Handover
 
+## 2026-05-02 Leif 503 compatibility + user model visibility
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`.
+- User reported that Leif's Claude Code client returned:
+  - `503 {"error":{"message":"No available accounts: no available accounts","type":"api_error"},"type":"error"}`
+  - Client label showed `Opus 4.6 (1M context)`.
+- Root cause:
+  - Production was intentionally changed to advertise/route latest Claude models only.
+  - The older client route `claude-opus-4-6[1m]` normalized the `[1m]` display suffix, but still requested stale `claude-opus-4-6`.
+  - Current production account mappings only contain `claude-opus-4-7`, so scheduler filtering found no eligible Anthropic account.
+- Backend fix:
+  - Added a compatibility alias in `backend/internal/pkg/claude/constants.go` so `claude-opus-4-6` and `claude-opus-4-6[1m]` route to `claude-opus-4-7`.
+  - Added coverage in `backend/internal/pkg/claude/constants_test.go`.
+  - Added coverage in `backend/internal/service/account_wildcard_test.go` proving an Anthropic account with only `claude-opus-4-7` mapping can serve stale `claude-opus-4-6[1m]` client requests.
+  - `/v1/models` remains latest-only because this alias is routing compatibility, not a public model-list rollback.
+- User portal fix:
+  - Added a read-only `Models` action to the normal user's `/keys` table in `frontend/src/views/user/KeysView.vue`.
+  - The modal calls `/v1/models` with that exact API key as `Authorization: Bearer ...`, so users see the same model list their key can actually use.
+  - This avoids exposing admin upstream accounts, groups, quotas, provider secrets, or internal scheduler details.
+  - Added English and Chinese copy in `frontend/src/i18n/locales/en.ts` and `frontend/src/i18n/locales/zh.ts`.
+- Verification:
+  - `pnpm --dir frontend exec vue-tsc --noEmit`
+  - `pnpm --dir frontend build`
+  - `git diff --check`
+  - `go test ./internal/pkg/claude ./internal/service -run 'TestNormalizeModelIDStripsClaudeDisplaySuffix|TestGatewayService|TestGetModelPricing_NormalizesClaudeDisplaySuffixBeforeLookup'`
+  - `go test -tags unit ./internal/service -run 'TestAccount(GetMappedModel|ResolveMappedModel)' -v`
+- Deployment/live verification:
+  - Not deployed in this turn.
+  - After deploy, verify Leif's key/client against `claude-opus-4-6[1m]` and confirm the user `/keys -> Models` modal returns only the latest approved public models.
+- No API keys, OAuth tokens, admin credentials, customer secrets, or proxy credentials were written to this handover.
+
+## 2026-05-02 Anthropic OAuth TLS default
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api` production.
+- User asked to keep the shared Oxylabs IP path, but make sure TLS fingerprinting is enabled for all Anthropic OAuth accounts and future Anthropic OAuth/setup-token accounts. Codex/OpenAI accounts should not use this Anthropic TLS feature.
+- Code change:
+  - Added `EnsureAnthropicOAuthTLSFingerprintEnabled` in `backend/internal/service/account.go`.
+  - Applied it in the admin create/update path, regular account create/update path, and CRS sync create/update path.
+  - Behavior: if an account is `platform=anthropic` and `type=oauth` or `type=setup-token`, Sub2API forces `extra.enable_tls_fingerprint=true`.
+  - Behavior: `platform=openai` / Codex OAuth accounts and Anthropic API-key accounts are left untouched.
+- Tests passed:
+  - `go test ./internal/service -run 'TestEnsureAnthropicOAuthTLSFingerprintEnabled|TestAccount_IsAnthropicAPIKeyPassthroughEnabled'`
+  - `go test ./internal/service ./internal/handler/admin -run 'TestEnsureAnthropicOAuthTLSFingerprintEnabled|TestAccount|TestCRS|TestGatewayService'`
+- Deployment:
+  - Railway production deployment `efa9254d-5bbb-4c1d-86df-2c8a23e4adc9` succeeded.
+- Live verification:
+  - Production admin account list has 12 upstream accounts.
+  - Anthropic accounts `3`, `6`, `7`, `8`, `9`, `10` all show `enable_tls_fingerprint=true`.
+  - OpenAI/Codex accounts `5`, `11`, `12`, `13`, `14`, `15` show no TLS fingerprint flag, as intended.
+- No OAuth tokens, admin credentials, customer API keys, or proxy credentials were written to this handover.
+
+## 2026-05-02 Spear Proxy OAuth import
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api` production plus local Spear Proxy account store at `/Users/benzhang/.anti-api/auth`.
+- Copied the usable local Spear Proxy Codex/OpenAI OAuth account for `tianyiz2020@gmail.com` into Sub2API production.
+- Created production upstream account:
+  - id `5`
+  - name `SpearProxy Codex - tianyiz2020@gmail.com`
+  - platform/type `openai` / `oauth`
+  - proxy id `1` (`Oxylabs US ISP 8003`)
+  - concurrency `4`
+  - WS mode `off`
+  - privacy mode `training_off`
+- Verified with the built-in admin account test: `POST /api/v1/admin/accounts/5/test` using `gpt-5.4` returned `test_complete` / `success: true`.
+- Did not import the local `ben.zhang.22@gmail.com` Codex row because it had no refresh token and its access token was already expired; reauthenticate that account first if it should become a Sub2API upstream account.
+- No OAuth tokens, admin credentials, or proxy credentials were written to this handover.
+
+## 2026-05-02 Upstream latest-model-only whitelist
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api` production.
+- User asked to keep only the latest model/image/mini versions for Sub2API upstream accounts and drop older versions.
+- Updated production account `credentials.model_mapping`:
+  - account id `3` (`anthropic` / `setup-token`) allows only `claude-opus-4-7`, `claude-sonnet-4-6`, and `claude-haiku-4-5-20251001`.
+  - account id `5` (`openai` / `oauth`) allows only `gpt-5.5`, `gpt-5.4-mini`, and `gpt-image-2`.
+- Verification:
+  - `/v1/models` with the current customer key returns only the three latest Claude family models.
+  - `claude-opus-4-6` now returns no available account, proving older Claude Opus is no longer schedulable.
+  - `claude-sonnet-4-6` still returns HTTP `200`.
+- Caveat: the OpenAI account whitelist is set, but the current customer key is still attached to the Anthropic `default` group, so OpenAI models are not visible from that key until an OpenAI-facing group/key/channel path is configured.
+- No secrets were written to this handover.
+
 ## 2026-05-01 Official upstream 0.1.121 review
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`.
@@ -298,6 +379,106 @@
   - any overage, throttling, or manual reset rules
 - The target margin or markup rule, so profitability can be checked automatically.
 - Confirmation of whether Anthropic OAuth usage should be treated as the source of truth when it is available, with local token logs as fallback.
+
+## 2026-05-02 Spear Proxy OAuth migration into default group
+
+- Scope: production Sub2API at `https://sub2api-app-production.up.railway.app` plus production Spear Proxy `anti-api-proxy-production`.
+- Imported production Spear Proxy OAuth auth files from Railway volume `/data/auth`:
+  - 5 Anthropic OAuth accounts: `alex@aiama.xyz`, `ben@aiama.xyz`, `dave@aiama.xyz`, `ed@aiama.xyz`, `spear@aiama.xyz`
+  - 5 Codex/OpenAI OAuth accounts: `ben.zhang.22@gmail.com`, `benzhang@alumni.ucla.edu`, `benzhang0819@gmail.com`, `benzhang.ys@gmail.com`, `spear@aiama.xyz`
+- Sub2API now has 12 active upstream accounts in group `default`:
+  - existing accounts `3` and `5`
+  - newly imported accounts `6` through `15`
+- All 12 accounts use proxy id `1` (`Oxylabs US ISP 8003`) and are bound to `default`.
+- Latest-only model mappings:
+  - Claude/Anthropic accounts: `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`
+  - Codex/OpenAI accounts: `gpt-5.5`, `gpt-5.4-mini`, `gpt-image-2`
+- Code change:
+  - Updated `backend/internal/server/routes/gateway.go` so a mixed `default` group can route `gpt-*` requests to the OpenAI gateway by inspecting the request `model` field, while Claude requests keep using the Anthropic gateway.
+  - Added regression coverage in `backend/internal/server/routes/gateway_test.go`.
+- Verification:
+  - `go test ./internal/server/routes ./internal/handler -run 'TestGatewayRoutes|TestShouldUseOpenAIGateway|TestGatewayHandler'`
+  - Railway deployment `dfe60069-7cfd-4b3d-8028-474ddb86ed16` for `sub2api-app` succeeded.
+  - Customer `/v1/models` returns exactly: `claude-haiku-4-5-20251001`, `claude-opus-4-7`, `claude-sonnet-4-6`, `gpt-5.4-mini`, `gpt-5.5`, `gpt-image-2`.
+  - `claude-sonnet-4-6` live request returned HTTP `200` and `ok`.
+  - `gpt-5.5` live `/v1/responses` request returned HTTP `200`, status `completed`, and output text `ok`.
+  - old `claude-opus-4-6` returned HTTP `503`.
+  - old `gpt-5.2` returned HTTP `503`.
+  - Direct account tests passed for imported account id `6` (`claude-sonnet-4-6`) and imported account id `11` (`gpt-5.5`).
+- Oxylabs/IP verification:
+  - Spear Proxy selected endpoint is `disp.oxylabs.io:8003`.
+  - A live egress probe from Spear Proxy through that endpoint observed IP `9.142.112.188`.
+  - Sub2API proxy id `1` is also `disp.oxylabs.io:8003` and reports observed IP `9.142.112.188`.
+  - This means the upstream-visible IP stayed the same for the migration/authentication path.
+- Note: the user mentioned 14 Spear Proxy upstream accounts. The production OAuth auth store contained 10 OAuth files; the remaining count appears to come from non-OAuth/env/session entries in quota/cache state, not importable OAuth account files.
+- No OAuth access token, refresh token, admin password, or proxy password was written to this handover.
+
+## 2026-05-02 Final migration QA and Spear Proxy shutdown
+
+- Scope: production Sub2API `sub2api-app` and production Spear Proxy `anti-api-proxy`.
+- Account-type clarification for `tianyiz2020@gmail.com`:
+  - account id `5`: OpenAI/Codex OAuth account (`platform=openai`, `type=oauth`).
+  - account id `3`: Claude setup-token account (`platform=anthropic`, `type=setup-token`), which may appear token-like in the UI but is not a manually entered API key.
+  - No queried Tianyi upstream row had `type=apikey`.
+- Account model mapping cleanup:
+  - Initial all-account/all-latest-model QA found account id `15` could run `gpt-5.5` and `gpt-5.4-mini` but not `gpt-image-2`; upstream returned `Tool choice 'image_generation' not found in 'tools' parameter.`
+  - Removed `gpt-image-2` from account id `15` `credentials.model_mapping`.
+  - Account id `15` remains active for latest GPT text and mini models.
+- Final advertised-account QA:
+  - Tested every active migrated account against every model it advertises.
+  - Result: `35` total checks, `35` passed.
+  - Claude account ids `3`, `6`, `7`, `8`, `9`, and `10` passed `claude-opus-4-7`, `claude-sonnet-4-6`, and `claude-haiku-4-5-20251001`.
+  - OpenAI account ids `5`, `11`, `12`, `13`, and `14` passed `gpt-5.5`, `gpt-5.4-mini`, and `gpt-image-2`.
+  - OpenAI account id `15` passed `gpt-5.5` and `gpt-5.4-mini`.
+- Final customer-facing QA:
+  - `/v1/models` returns exactly: `claude-haiku-4-5-20251001`, `claude-opus-4-7`, `claude-sonnet-4-6`, `gpt-5.4-mini`, `gpt-5.5`, `gpt-image-2`.
+  - Claude latest models returned HTTP `200` and `ok` through `/v1/messages`.
+  - GPT latest text models returned HTTP `200`, status `completed`, and `ok` through `/v1/responses`.
+  - `gpt-image-2` returned HTTP `200` with image data through `/v1/images/generations`.
+  - Old `claude-opus-4-6` and old `gpt-5.2` returned HTTP `503`, confirming older models are no longer user-facing.
+- Spear Proxy was disabled after QA:
+  - Set production Spear Proxy `/data/settings.json` `proxyEnabled=false`.
+  - Authenticated Spear Proxy API verification returned HTTP `503` with `Proxy is currently disabled. Enable it from the dashboard.`
+  - This prevents old Spear Proxy API endpoint users from sending traffic to the migrated upstream accounts.
+- No OAuth access token, refresh token, admin password, customer API key, or Spear Proxy API key was written to this handover.
+
+## 2026-05-02 Account hardening, compact probes, and count_tokens fix
+
+- Scope: production Sub2API `sub2api-app`.
+- OpenAI compact probes:
+  - The `Compact 未知` badge in the admin UI meant no explicit compact probe had been persisted.
+  - Ran compact tests for OpenAI account ids `5`, `11`, `12`, `13`, `14`, and `15`.
+  - All six passed and now show `openai_compact_supported=true`.
+- Anthropic hardening:
+  - Before this pass, imported Claude OAuth account ids `6` through `10` lacked the stronger flags already present on account id `3`.
+  - Updated account ids `6`, `7`, `8`, `9`, and `10`:
+    - `enable_tls_fingerprint=true`
+    - `session_id_masking_enabled=true`
+    - `session_idle_timeout_minutes=5`
+    - `window_cost_sticky_reserve=10`
+    - `base_rpm=15`
+    - `rpm_strategy=tiered`
+    - `user_msg_queue_mode=throttle`
+  - Post-update account QA passed for all Claude account/model combinations: `18/18`.
+- Capacity:
+  - Live group capacity after hardening: `concurrency_max=48`, `concurrency_used=0`.
+  - Platform split from ops concurrency: Anthropic `24`, OpenAI `24`.
+  - All 12 accounts are active/schedulable with `concurrency=4`.
+  - Claude group RPM guard is now `90` max (`15` per Claude account).
+- Count-token repair:
+  - Live `/v1/messages/count_tokens` initially failed because Claude OAuth mimicry added generation-only fields (`max_tokens`, then `temperature`) that Anthropic rejects on the count-token endpoint.
+  - Updated `backend/internal/service/gateway_service.go` so count_tokens strips generation-only fields before forwarding.
+  - Updated tests in `backend/internal/service/gateway_anthropic_apikey_passthrough_test.go`.
+  - Tests passed:
+    - `go test ./internal/service -run 'TestGatewayService_(CountTokensOAuthMimicryStripsGeneratedMaxTokens|AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFields|AnthropicAPIKeyPassthrough_ForwardCountTokensPreservesBody|AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotError)'`
+    - `go test ./internal/service ./internal/handler ./internal/server/routes -run 'TestGatewayService|TestGatewayHandler|TestGatewayRoutes|TestShouldUseOpenAIGateway|TestCountTokens|TestIsCountTokensUnsupported404'`
+  - Railway deployment `3cc7cf7c-585e-424f-b72f-1065c2fbd864` succeeded.
+  - Production verification:
+    - `/v1/messages/count_tokens` returned HTTP `200`, `input_tokens=12`, even with client-sent `max_tokens` and `temperature`.
+    - `/v1/messages` with `claude-sonnet-4-6` returned HTTP `200` and `ok`.
+    - `/v1/responses` with `gpt-5.5` returned HTTP `200`, status `completed`, and `ok`.
+    - Fresh usage logs were written with nonzero tokens and token billing costs for both Claude and GPT requests.
+- No OAuth access token, refresh token, admin password, customer API key, or proxy password was written to this handover.
 
 ### Current code facts
 

@@ -294,6 +294,17 @@ func TestAccountGetMappedModel(t *testing.T) {
 			expected:       "claude-sonnet-4-6",
 		},
 		{
+			name:     "anthropic stale opus 4.6 resolves through latest opus mapping",
+			platform: PlatformAnthropic,
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"claude-opus-4-7": "claude-opus-4-7",
+				},
+			},
+			requestedModel: "claude-opus-4-6[1m]",
+			expected:       "claude-opus-4-7",
+		},
+		{
 			name:     "gemini customtools exact mapping wins over normalized fallback",
 			platform: PlatformGemini,
 			credentials: map[string]any{

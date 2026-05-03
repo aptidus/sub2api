@@ -2152,6 +2152,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		Status:      StatusActive,
 		Schedulable: true,
 	}
+	EnsureAnthropicOAuthTLSFingerprintEnabled(account)
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
 		if err := ValidateQuotaResetConfig(account.Extra); err != nil {
@@ -2248,6 +2249,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			}
 		}
 		account.Extra = input.Extra
+		EnsureAnthropicOAuthTLSFingerprintEnabled(account)
 		if account.Platform == PlatformAntigravity && wasOveragesEnabled && !account.IsOveragesEnabled() {
 			delete(account.Extra, "antigravity_credits_overages") // 清理旧版 overages 运行态
 			// 清除 AICredits 限流 key
@@ -2311,6 +2313,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
 	}
+	EnsureAnthropicOAuthTLSFingerprintEnabled(account)
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if input.GroupIDs != nil {

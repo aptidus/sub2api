@@ -33,6 +33,11 @@ func TestNormalizeModelIDStripsClaudeDisplaySuffix(t *testing.T) {
 			input:    "claude-opus-4-7[1m][latest]",
 			expected: "claude-opus-4-7",
 		},
+		{
+			name:     "maps stale opus 4.6 client route to latest opus",
+			input:    "claude-opus-4-6[1m]",
+			expected: "claude-opus-4-7",
+		},
 	}
 
 	for _, tt := range tests {

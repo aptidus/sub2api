@@ -695,6 +695,13 @@ export default {
     quota: 'Quota',
     lastUsedAt: 'Last Used',
     useKey: 'Use Key',
+    availableModels: 'Models',
+    availableModelsTitle: 'Available models',
+    availableModelsDescription: 'These are the models returned by /v1/models when this exact API key is used. If a model is not listed here, the key should not be able to route to it.',
+    modelsForKey: 'Models for {name}',
+    loadingModels: 'Loading models...',
+    failedToLoadModels: 'Failed to load available models',
+    noAvailableModels: 'No models were returned for this key.',
     useKeyModal: {
       title: 'Use API Key',
       description:

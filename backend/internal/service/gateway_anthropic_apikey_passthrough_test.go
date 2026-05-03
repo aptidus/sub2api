@@ -446,7 +446,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
 
 	// 包含复杂字段的请求体：system、thinking、messages
-	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"You are a helpful assistant."}],"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}],"thinking":{"type":"enabled","budget_tokens":5000},"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"You are a helpful assistant."}],"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}],"thinking":{"type":"enabled","budget_tokens":5000},"max_tokens":1024,"temperature":1,"metadata":{"user_id":"user_123"}}`)
 	parsed := &ParsedRequest{
 		Body:  body,
 		Model: "claude-sonnet-4-20250514",
@@ -492,7 +492,57 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	require.Equal(t, "hello world", gjson.GetBytes(sentBody, "messages.0.content.0.text").String(), "messages 字段不应被修改")
 	require.Equal(t, "enabled", gjson.GetBytes(sentBody, "thinking.type").String(), "thinking 字段不应被修改")
 	require.Equal(t, int64(5000), gjson.GetBytes(sentBody, "thinking.budget_tokens").Int(), "thinking.budget_tokens 不应被修改")
-	require.Equal(t, int64(1024), gjson.GetBytes(sentBody, "max_tokens").Int(), "max_tokens 不应被修改")
+	require.False(t, gjson.GetBytes(sentBody, "max_tokens").Exists(), "count_tokens 上游请求不应包含 max_tokens")
+	require.False(t, gjson.GetBytes(sentBody, "temperature").Exists(), "count_tokens 上游请求不应包含 temperature")
+	require.False(t, gjson.GetBytes(sentBody, "metadata").Exists(), "count_tokens 上游请求不应包含 metadata")
+}
+
+func TestGatewayService_CountTokensOAuthMimicryStripsGeneratedMaxTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hello"}]}`)
+	parsed := &ParsedRequest{
+		Body:  body,
+		Model: "claude-sonnet-4-20250514",
+	}
+
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"input_tokens":8}`)),
+		},
+	}
+
+	svc := &GatewayService{
+		cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+	}
+
+	account := &Account{
+		ID:          303,
+		Name:        "oauth-count-tokens-test",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "oauth-token",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_tokens").Exists(), "OAuth mimicry must not leak generated max_tokens into count_tokens")
+	require.False(t, gjson.GetBytes(upstream.lastBody, "temperature").Exists(), "OAuth mimicry must not leak generated temperature into count_tokens")
+	require.False(t, gjson.GetBytes(upstream.lastBody, "stream").Exists(), "count_tokens upstream request should not contain stream")
+	require.False(t, gjson.GetBytes(upstream.lastBody, "metadata").Exists(), "count_tokens upstream request should not contain metadata")
 }
 
 // TestGatewayService_AnthropicAPIKeyPassthrough_EmptyModelSkipsMapping

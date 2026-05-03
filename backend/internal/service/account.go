@@ -1388,6 +1388,19 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 	return a.Platform == PlatformAnthropic && (a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken)
 }
 
+// EnsureAnthropicOAuthTLSFingerprintEnabled makes TLS fingerprinting a default
+// invariant for Anthropic OAuth/setup-token accounts. OpenAI/Codex and API-key
+// accounts intentionally do not use this Anthropic-specific setting.
+func EnsureAnthropicOAuthTLSFingerprintEnabled(account *Account) {
+	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		return
+	}
+	if account.Extra == nil {
+		account.Extra = make(map[string]any)
+	}
+	account.Extra["enable_tls_fingerprint"] = true
+}
+
 // IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
 // 仅适用于 Anthropic OAuth/SetupToken 类型账号
 // 启用后将模拟 Claude Code (Node.js) 客户端的 TLS 握手特征

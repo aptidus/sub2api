@@ -8779,7 +8779,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
-		passthroughBody := parsed.Body
+		passthroughBody := stripCountTokensUnsupportedFields(parsed.Body)
 		if reqModel := parsed.Model; reqModel != "" {
 			mappedModel := account.GetMappedModel(reqModel)
 			if mappedModel == reqModel {
@@ -8820,6 +8820,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			body = applyToolsLastCacheBreakpoint(body)
 		}
 	}
+	body = stripCountTokensUnsupportedFields(body)
 
 	// Antigravity 账户不支持 count_tokens，返回 404 让客户端 fallback 到本地估算。
 	// 返回 nil 避免 handler 层记录为错误，也不设置 ops 上游错误上下文。
@@ -8973,6 +8974,26 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// 透传成功响应
 	c.Data(resp.StatusCode, "application/json", respBody)
 	return nil
+}
+
+func stripCountTokensUnsupportedFields(body []byte) []byte {
+	for _, field := range []string{
+		"max_tokens",
+		"stream",
+		"temperature",
+		"top_p",
+		"top_k",
+		"stop_sequences",
+		"service_tier",
+		"metadata",
+	} {
+		if gjson.GetBytes(body, field).Exists() {
+			if next, ok := deleteJSONPathBytes(body, field); ok {
+				body = next
+			}
+		}
+	}
+	return body
 }
 
 func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte) error {

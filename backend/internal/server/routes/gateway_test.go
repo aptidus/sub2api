@@ -77,3 +77,38 @@ func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
 		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI images handler", path)
 	}
 }
+
+func TestShouldUseOpenAIGatewayForGPTModelInAnthropicGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hi"}`))
+	c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
+		GroupID: ptrInt64(1),
+		Group:   &service.Group{Platform: service.PlatformAnthropic},
+	})
+
+	require.True(t, shouldUseOpenAIGateway(c))
+
+	body := make([]byte, c.Request.ContentLength)
+	_, err := c.Request.Body.Read(body)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"gpt-5.5","input":"hi"}`, string(body))
+}
+
+func TestShouldUseOpenAIGatewayKeepsClaudeInAnthropicGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6"}`))
+	c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
+		GroupID: ptrInt64(1),
+		Group:   &service.Group{Platform: service.PlatformAnthropic},
+	})
+
+	require.False(t, shouldUseOpenAIGateway(c))
+}
+
+func ptrInt64(v int64) *int64 {
+	return &v
+}
