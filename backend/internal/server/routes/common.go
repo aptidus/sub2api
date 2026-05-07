@@ -2,6 +2,9 @@ package routes
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -29,4 +32,49 @@ func RegisterCommonRoutes(r *gin.Engine) {
 			},
 		})
 	})
+
+	registerSpearRelayRoutes(r)
+}
+
+func registerSpearRelayRoutes(r *gin.Engine) {
+	dir := spearRelayDir()
+	if dir == "" {
+		return
+	}
+
+	r.GET("/spearrelay", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/spearrelay/")
+	})
+	r.GET("/spearrelay/", func(c *gin.Context) {
+		c.File(filepath.Join(dir, "index.html"))
+	})
+	r.GET("/spearrelay/*filepath", func(c *gin.Context) {
+		requested := strings.TrimPrefix(c.Param("filepath"), "/")
+		if requested == "" {
+			c.File(filepath.Join(dir, "index.html"))
+			return
+		}
+		cleaned := strings.TrimPrefix(filepath.Clean("/"+requested), "/")
+		filePath := filepath.Join(dir, cleaned)
+		info, err := os.Stat(filePath)
+		if err != nil || info.IsDir() {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.File(filePath)
+	})
+}
+
+func spearRelayDir() string {
+	for _, candidate := range []string{
+		"spearrelay",
+		filepath.Join("..", "spearrelay"),
+		filepath.Join("/app", "spearrelay"),
+	} {
+		info, err := os.Stat(filepath.Join(candidate, "index.html"))
+		if err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }

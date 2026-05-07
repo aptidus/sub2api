@@ -83,6 +83,15 @@
                 <span class="hidden md:inline">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
               </button>
 
+              <button
+                @click="openRiskReport"
+                class="btn btn-secondary"
+                title="Upstream risk report"
+              >
+                <Icon name="shield" size="md" class="mr-1.5" />
+                <span class="hidden md:inline">Risk Report</span>
+              </button>
+
               <!-- Column Settings Dropdown -->
               <div class="relative" ref="columnDropdownRef">
                 <button
@@ -334,6 +343,70 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <div v-if="showRiskReport" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="showRiskReport = false">
+      <div class="max-h-[85vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
+        <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+          <div>
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Upstream Risk Report</h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Token, cache-read, user, key, client, and IP concentration by upstream account.</p>
+          </div>
+          <button class="btn btn-secondary" @click="showRiskReport = false">Close</button>
+        </div>
+        <div class="max-h-[70vh] overflow-auto p-5">
+          <div v-if="riskReportLoading" class="py-10 text-center text-sm text-gray-500">Loading risk report...</div>
+          <div v-else-if="!riskReport?.items?.length" class="py-10 text-center text-sm text-gray-500">No upstream usage in this window.</div>
+          <div v-else class="space-y-4">
+            <div
+              v-for="item in riskReport.items"
+              :key="item.account.id"
+              class="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/60"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-semibold text-gray-900 dark:text-white">{{ item.account.name }}</span>
+                    <span class="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200">{{ item.account.type }}</span>
+                    <span :class="riskBadgeClass(item.risk_level)">{{ item.risk_level }}</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">#{{ item.account.id }} · {{ item.account.status }} · schedulable: {{ item.account.schedulable ? 'yes' : 'no' }}</p>
+                </div>
+                <div class="text-right text-sm text-gray-700 dark:text-gray-200">{{ item.recommended_action }}</div>
+              </div>
+              <div class="mt-4 grid gap-3 md:grid-cols-4">
+                <div class="rounded-lg bg-white p-3 dark:bg-gray-900">
+                  <div class="text-xs text-gray-500">5m requests</div>
+                  <div class="text-lg font-semibold">{{ formatCompactNumber(item.five_minute.requests) }}</div>
+                </div>
+                <div class="rounded-lg bg-white p-3 dark:bg-gray-900">
+                  <div class="text-xs text-gray-500">5m cache-read</div>
+                  <div class="text-lg font-semibold">{{ formatCompactNumber(item.five_minute.cache_read_tokens) }}</div>
+                </div>
+                <div class="rounded-lg bg-white p-3 dark:bg-gray-900">
+                  <div class="text-xs text-gray-500">5h tokens</div>
+                  <div class="text-lg font-semibold">{{ formatCompactNumber(item.five_hour.tokens) }}</div>
+                </div>
+                <div class="rounded-lg bg-white p-3 dark:bg-gray-900">
+                  <div class="text-xs text-gray-500">external/internal</div>
+                  <div class="text-lg font-semibold">{{ item.five_hour.external_requests }}/{{ item.five_hour.internal_requests }}</div>
+                </div>
+              </div>
+              <div class="mt-4 grid gap-3 md:grid-cols-4">
+                <div v-for="section in riskTopSections(item)" :key="section.title" class="rounded-lg bg-white p-3 dark:bg-gray-900">
+                  <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">{{ section.title }}</div>
+                  <div v-if="!section.rows.length" class="text-xs text-gray-400">None</div>
+                  <div v-for="row in section.rows" :key="row.label" class="mb-1 truncate text-xs text-gray-600 dark:text-gray-300" :title="row.label">
+                    {{ row.label }} · {{ formatCompactNumber(row.tokens) }}
+                  </div>
+                </div>
+              </div>
+              <ul class="mt-3 space-y-1 text-xs text-gray-500 dark:text-gray-400">
+                <li v-for="reason in item.risk_reasons" :key="reason">{{ reason }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </AppLayout>
 </template>
 
@@ -375,6 +448,7 @@ import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfil
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { AccountRiskReport, AccountRiskReportItem, AccountRiskDimensionStat } from '@/api/admin/accounts'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -438,6 +512,9 @@ const showTest = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
+const showRiskReport = ref(false)
+const riskReportLoading = ref(false)
+const riskReport = ref<AccountRiskReport | null>(null)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -450,6 +527,40 @@ const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
+
+const openRiskReport = async () => {
+  showRiskReport.value = true
+  riskReportLoading.value = true
+  try {
+    riskReport.value = await adminAPI.accounts.getRiskReport({ platform: 'anthropic', hours: 5, top_limit: 5 })
+  } catch (error: any) {
+    appStore.showError(error?.message || 'Failed to load upstream risk report')
+  } finally {
+    riskReportLoading.value = false
+  }
+}
+
+const formatCompactNumber = (value?: number) => {
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1
+  }).format(value || 0)
+}
+
+const riskBadgeClass = (level: string) => {
+  const base = 'rounded-full px-2 py-0.5 text-xs font-medium capitalize'
+  if (level === 'critical') return `${base} bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200`
+  if (level === 'high') return `${base} bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200`
+  if (level === 'medium') return `${base} bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200`
+  return `${base} bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200`
+}
+
+const riskTopSections = (item: AccountRiskReportItem): Array<{ title: string; rows: AccountRiskDimensionStat[] }> => [
+  { title: 'Users', rows: item.top.users || [] },
+  { title: 'API keys', rows: item.top.api_keys || [] },
+  { title: 'Clients', rows: item.top.clients || [] },
+  { title: 'IPs', rows: item.top.ip_addresses || [] }
+]
 
 // Column settings
 const showColumnDropdown = ref(false)
@@ -814,7 +925,8 @@ const isAnyModalOpen = computed(() => {
     showTest.value ||
     showStats.value ||
     showSchedulePanel.value ||
-    showErrorPassthrough.value
+    showErrorPassthrough.value ||
+    showRiskReport.value
   )
 })
 

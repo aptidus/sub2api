@@ -1786,6 +1786,42 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 	response.Success(c, payload)
 }
 
+// GetRiskReport returns upstream account concentration/risk stats for admins.
+// GET /api/v1/admin/accounts/risk-report?platform=anthropic&hours=5&top_limit=5
+func (h *AccountHandler) GetRiskReport(c *gin.Context) {
+	if h.accountUsageService == nil {
+		response.InternalError(c, "Account usage service unavailable")
+		return
+	}
+
+	platform := strings.TrimSpace(c.DefaultQuery("platform", service.PlatformAnthropic))
+	hours := 5.0
+	if raw := strings.TrimSpace(c.Query("hours")); raw != "" {
+		parsed, err := strconv.ParseFloat(raw, 64)
+		if err != nil || parsed <= 0 || parsed > 168 {
+			response.BadRequest(c, "Invalid hours; must be between 0 and 168")
+			return
+		}
+		hours = parsed
+	}
+	topLimit := 5
+	if raw := strings.TrimSpace(c.Query("top_limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 || parsed > 20 {
+			response.BadRequest(c, "Invalid top_limit; must be between 1 and 20")
+			return
+		}
+		topLimit = parsed
+	}
+
+	report, err := h.accountUsageService.GetRiskReport(c.Request.Context(), platform, time.Duration(hours*float64(time.Hour)), topLimit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, report)
+}
+
 // SetSchedulableRequest represents the request body for setting schedulable status
 type SetSchedulableRequest struct {
 	Schedulable bool `json:"schedulable"`

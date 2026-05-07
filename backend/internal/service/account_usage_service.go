@@ -79,6 +79,66 @@ type UsageLogRepository interface {
 	GetDailyStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) ([]map[string]any, error)
 }
 
+type AccountRiskWindowStats struct {
+	AccountID        int64      `json:"account_id"`
+	Requests         int64      `json:"requests"`
+	Tokens           int64      `json:"tokens"`
+	CacheReadTokens  int64      `json:"cache_read_tokens"`
+	DistinctUsers    int64      `json:"distinct_users"`
+	DistinctAPIKeys  int64      `json:"distinct_api_keys"`
+	DistinctIPs      int64      `json:"distinct_ips"`
+	LastRequestAt    *time.Time `json:"last_request_at,omitempty"`
+	InternalRequests int64      `json:"internal_requests"`
+	ExternalRequests int64      `json:"external_requests"`
+}
+
+type AccountRiskDimensionStat struct {
+	AccountID       int64  `json:"account_id"`
+	Label           string `json:"label"`
+	Requests        int64  `json:"requests"`
+	Tokens          int64  `json:"tokens"`
+	CacheReadTokens int64  `json:"cache_read_tokens"`
+}
+
+type AccountRiskTopDimensions struct {
+	Users       []AccountRiskDimensionStat `json:"users"`
+	APIKeys     []AccountRiskDimensionStat `json:"api_keys"`
+	Clients     []AccountRiskDimensionStat `json:"clients"`
+	IPAddresses []AccountRiskDimensionStat `json:"ip_addresses"`
+}
+
+type AccountRiskReportItem struct {
+	Account           AccountRiskAccountSummary `json:"account"`
+	FiveMinute        AccountRiskWindowStats    `json:"five_minute"`
+	FiveHour          AccountRiskWindowStats    `json:"five_hour"`
+	Top               AccountRiskTopDimensions  `json:"top"`
+	RiskLevel         string                    `json:"risk_level"`
+	RiskReasons       []string                  `json:"risk_reasons"`
+	RecommendedAction string                    `json:"recommended_action"`
+}
+
+type AccountRiskAccountSummary struct {
+	ID           int64      `json:"id"`
+	Name         string     `json:"name"`
+	Platform     string     `json:"platform"`
+	Type         string     `json:"type"`
+	Status       string     `json:"status"`
+	Schedulable  bool       `json:"schedulable"`
+	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
+	ErrorMessage string     `json:"error_message,omitempty"`
+}
+
+type AccountRiskReport struct {
+	GeneratedAt time.Time               `json:"generated_at"`
+	WindowStart time.Time               `json:"window_start"`
+	Items       []AccountRiskReportItem `json:"items"`
+}
+
+type accountRiskUsageReader interface {
+	GetAccountRiskWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]AccountRiskWindowStats, error)
+	GetAccountRiskDimensionStats(ctx context.Context, accountIDs []int64, startTime, endTime time.Time, dimension string, limit int) (map[int64][]AccountRiskDimensionStat, error)
+}
+
 type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
@@ -1334,4 +1394,129 @@ func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64
 // 用于账号列表页面显示当前窗口费用
 func (s *AccountUsageService) GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
 	return s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
+}
+
+func (s *AccountUsageService) GetRiskReport(ctx context.Context, platform string, window time.Duration, topLimit int) (*AccountRiskReport, error) {
+	if s == nil || s.accountRepo == nil || s.usageLogRepo == nil {
+		return nil, fmt.Errorf("account usage service is not ready")
+	}
+	if strings.TrimSpace(platform) == "" {
+		platform = PlatformAnthropic
+	}
+	if window <= 0 {
+		window = 5 * time.Hour
+	}
+	if topLimit <= 0 || topLimit > 20 {
+		topLimit = 5
+	}
+
+	accounts, err := s.accountRepo.ListByPlatform(ctx, platform)
+	if err != nil {
+		return nil, err
+	}
+	accountIDs := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		accountIDs = append(accountIDs, accounts[i].ID)
+	}
+
+	now := time.Now()
+	report := &AccountRiskReport{
+		GeneratedAt: now,
+		WindowStart: now.Add(-window),
+		Items:       make([]AccountRiskReportItem, 0, len(accounts)),
+	}
+	if len(accountIDs) == 0 {
+		return report, nil
+	}
+
+	reader, ok := s.usageLogRepo.(accountRiskUsageReader)
+	if !ok {
+		return nil, fmt.Errorf("usage repository does not support account risk reporting")
+	}
+
+	fiveMinute, err := reader.GetAccountRiskWindowStatsBatch(ctx, accountIDs, now.Add(-5*time.Minute), now)
+	if err != nil {
+		return nil, err
+	}
+	fiveHour, err := reader.GetAccountRiskWindowStatsBatch(ctx, accountIDs, now.Add(-5*time.Hour), now)
+	if err != nil {
+		return nil, err
+	}
+
+	topUsers, _ := reader.GetAccountRiskDimensionStats(ctx, accountIDs, report.WindowStart, now, "user", topLimit)
+	topAPIKeys, _ := reader.GetAccountRiskDimensionStats(ctx, accountIDs, report.WindowStart, now, "api_key", topLimit)
+	topClients, _ := reader.GetAccountRiskDimensionStats(ctx, accountIDs, report.WindowStart, now, "client", topLimit)
+	topIPs, _ := reader.GetAccountRiskDimensionStats(ctx, accountIDs, report.WindowStart, now, "ip", topLimit)
+
+	for i := range accounts {
+		account := accounts[i]
+		item := AccountRiskReportItem{
+			Account: AccountRiskAccountSummary{
+				ID:           account.ID,
+				Name:         account.Name,
+				Platform:     account.Platform,
+				Type:         account.Type,
+				Status:       account.Status,
+				Schedulable:  account.Schedulable,
+				LastUsedAt:   account.LastUsedAt,
+				ErrorMessage: account.ErrorMessage,
+			},
+			FiveMinute: fiveMinute[account.ID],
+			FiveHour:   fiveHour[account.ID],
+			Top: AccountRiskTopDimensions{
+				Users:       topUsers[account.ID],
+				APIKeys:     topAPIKeys[account.ID],
+				Clients:     topClients[account.ID],
+				IPAddresses: topIPs[account.ID],
+			},
+		}
+		item.RiskLevel, item.RiskReasons, item.RecommendedAction = classifyAccountRisk(&account, item.FiveMinute, item.FiveHour)
+		report.Items = append(report.Items, item)
+	}
+
+	return report, nil
+}
+
+func classifyAccountRisk(account *Account, fiveMinute AccountRiskWindowStats, fiveHour AccountRiskWindowStats) (string, []string, string) {
+	var reasons []string
+	level := "low"
+	action := "monitor"
+
+	if account != nil && account.Platform == PlatformAnthropic && account.Type == AccountTypeSetupToken && !account.AllowsProductionTraffic() {
+		reasons = append(reasons, "Anthropic setup-token is blocked from production scheduling unless explicitly opted in")
+		level = "critical"
+		action = "keep disabled for customer traffic"
+	}
+	if fiveMinute.Requests >= 30 {
+		reasons = append(reasons, "high request velocity in the last 5 minutes")
+		if level != "critical" {
+			level = "high"
+			action = "distribute traffic or pause this upstream account"
+		}
+	}
+	if fiveMinute.CacheReadTokens >= 1000000 {
+		reasons = append(reasons, "high cache-read token velocity in the last 5 minutes")
+		if level != "critical" {
+			level = "high"
+			action = "distribute traffic or pause this upstream account"
+		}
+	}
+	if fiveHour.Tokens >= 50000000 {
+		reasons = append(reasons, "high total token concentration in the 5-hour window")
+		if level == "low" {
+			level = "medium"
+			action = "watch quota and rebalance before the next spike"
+		}
+	}
+	if fiveMinute.DistinctUsers >= 5 || fiveMinute.DistinctIPs >= 5 {
+		reasons = append(reasons, "many users or IPs concentrated on one upstream account")
+		if level == "low" {
+			level = "medium"
+			action = "spread users across corporate accounts"
+		}
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, "no concentration threshold crossed")
+	}
+	return level, reasons, action
 }

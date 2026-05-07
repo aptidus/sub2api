@@ -237,6 +237,66 @@ export async function getUsage(id: number, source?: 'passive' | 'active'): Promi
   return data
 }
 
+export interface AccountRiskWindowStats {
+  account_id: number
+  requests: number
+  tokens: number
+  cache_read_tokens: number
+  distinct_users: number
+  distinct_api_keys: number
+  distinct_ips: number
+  internal_requests: number
+  external_requests: number
+  last_request_at?: string
+}
+
+export interface AccountRiskDimensionStat {
+  account_id: number
+  label: string
+  requests: number
+  tokens: number
+  cache_read_tokens: number
+}
+
+export interface AccountRiskReportItem {
+  account: {
+    id: number
+    name: string
+    platform: string
+    type: string
+    status: string
+    schedulable: boolean
+    last_used_at?: string
+    error_message?: string
+  }
+  five_minute: AccountRiskWindowStats
+  five_hour: AccountRiskWindowStats
+  top: {
+    users?: AccountRiskDimensionStat[]
+    api_keys?: AccountRiskDimensionStat[]
+    clients?: AccountRiskDimensionStat[]
+    ip_addresses?: AccountRiskDimensionStat[]
+  }
+  risk_level: string
+  risk_reasons: string[]
+  recommended_action: string
+}
+
+export interface AccountRiskReport {
+  generated_at: string
+  window_start: string
+  items: AccountRiskReportItem[]
+}
+
+export async function getRiskReport(params?: {
+  platform?: string
+  hours?: number
+  top_limit?: number
+}): Promise<AccountRiskReport> {
+  const { data } = await apiClient.get<AccountRiskReport>('/admin/accounts/risk-report', { params })
+  return data
+}
+
 /**
  * Clear account rate limit status
  * @param id - Account ID
@@ -644,6 +704,7 @@ export const accountsAPI = {
   getStats,
   clearError,
   getUsage,
+  getRiskReport,
   getTodayStats,
   getBatchTodayStats,
   clearRateLimit,

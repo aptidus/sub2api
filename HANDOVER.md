@@ -1,5 +1,290 @@
 # Sub2API Handover
 
+## 2026-05-06 SpearRelay customer portal backend connection
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`, customer-facing SpearRelay static app, and Sub2API backend routes.
+- Goal: make SpearRelay production-connected without exposing the admin WebUI to normal users.
+- Architecture decision:
+  - SpearRelay is served by the same backend service at `/spearrelay/`.
+  - The user-facing site calls the existing Sub2API backend on same-origin `/api/v1/customer/...`.
+  - This avoids `file://` and CORS problems and keeps the admin WebUI separate.
+- Code changes made:
+  - `Dockerfile`: copies the `spearrelay/` static site into the runtime image at `/app/spearrelay`.
+  - `backend/internal/server/routes/common.go`: serves SpearRelay from `/spearrelay/` and redirects `/spearrelay` to `/spearrelay/`.
+  - `backend/internal/web/embed_on.go`: bypasses the embedded admin frontend for `/spearrelay`, so the admin Vue app does not intercept the commercial site path.
+  - `spearrelay/app.js`: removed inline click handlers and replaced them with `data-action` event delegation so the page works under the backend Content-Security-Policy.
+  - `backend/internal/handler/admin/admin_service_stub_test.go`: added the missing `AdminDeleteAPIKey` test-stub method so admin handler tests compile with the existing API-key delete capability.
+- Verification completed locally:
+  - `node --check spearrelay/app.js` passed.
+  - `rg -n "onclick=" spearrelay` returned no inline click handlers.
+  - `git diff --check` passed.
+  - `go test ./internal/server/routes` passed.
+  - `go test ./internal/service ./internal/server ./internal/server/routes` passed.
+  - `go build ./internal/handler/admin ./internal/repository ./internal/service ./internal/server ./internal/server/routes` passed.
+  - `go test ./internal/service ./internal/repository ./internal/handler/admin ./internal/server ./internal/server/routes` passed.
+  - `npm run typecheck` in `frontend/` passed.
+  - `npm run build` in `frontend/` passed with existing Vite chunk/import warnings.
+  - `go build -tags embed ./cmd/server` in `backend/` passed.
+- Production deploy still needs final verification after push:
+  - `GET https://sub2api-app-production.up.railway.app/spearrelay/` should return the SpearRelay HTML.
+  - `GET https://sub2api-app-production.up.railway.app/spearrelay/app.js` should return the SpearRelay app JavaScript.
+  - `POST https://sub2api-app-production.up.railway.app/api/v1/customer/auth/login` with bad credentials should return an auth error, not `404`; that proves the customer routes are live.
+- No OAuth access token, refresh token, admin key, customer API key, database password, or Stripe secret was written to this handover.
+
+## 2026-05-06 Upstream risk controls and production safety guard
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api` plus production Railway service `sub2api-app`.
+- User clarified that the remaining Codex/Anthropic accounts are corporate accounts; only `tianyiz2020@gmail.com` should be treated as the banned personal Max/setup-token case.
+- Code changes made:
+  - `backend/internal/service/account.go`: `Account.IsSchedulable()` now calls `AllowsProductionTraffic()`. Anthropic `setup-token` accounts are not schedulable unless `extra.production_traffic_allowed=true`. Corporate Anthropic OAuth/API-key accounts are unaffected.
+  - `backend/internal/service/ratelimit_service.go`: Anthropic upstream “out of extra usage” / usage quota style errors now set a temporary unschedulable pause instead of immediately retrying the same exhausted account.
+  - `backend/internal/service/gateway_service.go`: Anthropic OAuth/setup-token selection now enforces local risk caps before scheduling. Defaults: `120` requests/5m, `2,000,000` cache-read tokens/5m, `80,000,000` total tokens/5h, `10` distinct users/5m, `10` distinct IPs/5m, and `30` minute auto-pause. Per-account overrides live in `accounts.extra` keys:
+    - `risk_max_requests_5m`
+    - `risk_max_cache_read_tokens_5m`
+    - `risk_max_total_tokens_5h`
+    - `risk_max_distinct_users_5m`
+    - `risk_max_distinct_ips_5m`
+    - `risk_cap_pause_minutes`
+    - `risk_usage_exhausted_pause_minutes`
+  - `backend/internal/repository/usage_log_repo.go` and `backend/internal/service/account_usage_service.go`: added account risk reporting from existing `usage_logs`, including account windows, cache-read tokens, internal-vs-external request counts, and top users/API keys/clients/IPs.
+  - `backend/internal/handler/admin/account_handler.go` and `backend/internal/server/routes/admin.go`: added admin endpoint `GET /api/v1/admin/accounts/risk-report?platform=anthropic&hours=5&top_limit=5`.
+  - `frontend/src/api/admin/accounts.ts` and `frontend/src/views/admin/AccountsView.vue`: added an admin “Risk Report” button on the account management page. It shows per-upstream account risk level, 5-minute velocity, 5-hour token concentration, internal/external request split, and top users/API keys/clients/IPs.
+- Production operation completed:
+  - Verified account `3|tianyiz2020@gmail.com|anthropic|setup-token|error|schedulable=false`.
+  - Updated production account `3` extra flags:
+    - `production_traffic_allowed=false`
+    - `risk_policy=personal_setup_token_disabled`
+  - Verified current Anthropic accounts after the update:
+    - `id=3` remains `setup-token`, `error`, `schedulable=false`, `production_traffic_allowed=false`.
+    - `id=6-10` remain Anthropic `oauth`, `active`, `schedulable=true`.
+    - Existing `id=2` Anthropic OAuth account was left untouched per the user’s statement that the remaining accounts are corporate accounts.
+- Verification:
+  - `gofmt` passed using `/opt/homebrew/bin/gofmt`.
+  - `go test ./internal/service` passed.
+  - `go test ./internal/repository -run TestNonExistent` passed as a repository compile smoke.
+  - `go build ./internal/handler/admin ./internal/repository ./internal/service ./internal/server` passed.
+  - `npm run typecheck` in `frontend/` passed.
+  - `git diff --check` passed.
+  - Production read-only SQL smoke validated the two new risk-report query shapes for account windows and top user dimensions against current Anthropic account ids.
+  - Full `go test ./internal/service ./internal/repository ./internal/handler/admin ./internal/server` is still blocked by a pre-existing handler test-stub mismatch from earlier dirty admin API-key work: `stubAdminService does not implement service.AdminService (missing method AdminDeleteAPIKey)`. The normal package build passes.
+- No OAuth access token, refresh token, admin key, customer API key, database password, or proxy secret was written to this handover.
+
+## 2026-05-06 Anthropic personal Max account ban investigation
+
+- Scope: production Sub2API database via Railway service `sub2api-app`.
+- User reported that upstream Anthropic account `tianyiz2020@gmail.com` was banned/refunded today, while team-organization Anthropic accounts remained normal.
+- Account identity:
+  - Banned account is production `accounts.id=3`, name `tianyiz2020@gmail.com`, platform `anthropic`, type `setup-token`.
+  - Current status is `error`, `schedulable=false`.
+  - Stored account error: `Access forbidden (403): OAuth authentication is currently not allowed for this organization.`
+  - Team Anthropic accounts checked: `accounts.id=6-10`, all `platform=anthropic`, type `oauth`, status `active`, `schedulable=true`.
+- Seven-day usage comparison:
+  - Account `3`: `6,961` logged requests, `764,578` input tokens, `2,526,369` output tokens, `26,637,988` cache-creation tokens, `477,353,661` cache-read tokens.
+  - Team accounts `6-10`: each had only `141-485` logged requests in the same query window, with `6.2M-52.8M` cache-read tokens each.
+  - Account `3` had far more traffic and cache traffic than any single team account.
+- Today before failure:
+  - Account `3`: `976` logged successful requests from `2026-05-06 00:43:29Z` to `2026-05-06 08:31:34Z`, about `58.2M` total logged tokens.
+  - Account `3` stopped successful traffic at `2026-05-06 08:31:34Z`.
+  - First hard upstream failure was at `2026-05-06 08:32:19Z`: `OAuth authentication is currently not allowed for this organization.`
+- Concentration:
+  - Top users on account `3` in 7-day window:
+    - `tianyi2020@gmail.com`, API key `13`: `3,356` requests, `132.25M` total tokens.
+    - `xifengzhu520@gmail.com`, API key `9`: `2,416` requests, `312.47M` total tokens.
+    - `ben.zhang.22@gmail.com`, API key `2`: `485` requests, `28.79M` total tokens.
+  - Top two IPs were responsible for almost all account `3` traffic:
+    - One IP: `3,859` requests, `161.36M` tokens.
+    - Another IP: `2,410` requests, `312.38M` tokens.
+  - Team accounts had much lower per-account concentration: `2-5` users and `3-6` IPs each in the same query window.
+- Client mix:
+  - Account `3` top user agents:
+    - `OpenAI/Python 2.31.0`: `4,214` requests, `233.56M` tokens.
+    - `claude-cli/2.1.100`: `1,286` requests, `187.54M` tokens.
+    - `claude-cli/2.1.14`: `396` requests, `18.71M` tokens.
+    - Other Claude CLI, Codex CLI, curl, and urllib clients also appeared.
+- Model mix on account `3`:
+  - `claude-haiku-4-5-20251001`: `3,882` requests.
+  - `claude-sonnet-4-6`: `2,327` requests.
+  - `claude-opus-4-6`: `496` requests.
+  - `claude-opus-4-7`: `230` requests.
+- Error pattern:
+  - Account `3` had `59` `You're out of extra usage. Add more at claude.ai/settings/usage and keep going.` errors from `2026-05-05 22:58:14Z` to `2026-05-06 04:21:25Z`.
+  - Team accounts also had quota-style errors, but the message was workspace/team flavored, such as `Ask your workspace admin to add more`, and they remained active.
+  - The ban/revocation error was a provider-side `403`, not a normal Sub2API routing error.
+- Final burst:
+  - From `2026-05-06 08:20Z` to `08:31Z`, account `3` served repeated `claude-cli/2.1.92` calls for `xifengzhu520@gmail.com` / API key `9`.
+  - Individual final successful calls often had `1-2` fresh input tokens and `55K-160K` cache-read tokens, meaning a cached large context was being hammered repeatedly.
+  - The final minute `08:31Z` had `6` successful requests, `51,525` cache-creation tokens, and `390,801` cache-read tokens; then the provider returned the `403` organization OAuth error at `08:32:19Z`.
+- Evidence-based interpretation:
+  - The most likely cause is not one visible content-policy request from the logs. Successful request bodies are not stored, so content cannot be reconstructed.
+  - The traffic pattern looks like commercial/proxy automation on a personal Max/setup-token account: very high request count, very high cache-read volume, multiple users/API keys/IPs, OpenAI-compatible clients plus Claude CLI clients, and repeated use after quota-style errors.
+  - The team org accounts had similar technical transport/proxy/TLS settings but were org OAuth accounts and were not carrying the same seven-day concentration on one personal account.
+- Recommended next actions:
+  - Keep account `3` disabled; do not retry it automatically.
+  - Do not route customer/commercial traffic through personal Max accounts.
+  - Add per-upstream-account risk caps: maximum distinct users/IPs per upstream account, max requests per 5 minutes, max cache-read tokens per 5 minutes, max total tokens per 5-hour window, and auto-pause after repeated `out of extra usage` errors.
+  - Prefer team organization accounts for production traffic and distribute load before an account hits quota/error thresholds.
+  - Add a dashboard/report that highlights concentration by upstream account, user, API key, client, IP, and cache-read-token velocity.
+
+## 2026-05-05 SpearRelay customer auth/backend connection
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`, focused on connecting standalone SpearRelay to the current Sub2API backend without opening admin/operator routes.
+- Current production finding:
+  - `spearrelay/config.js` points at `https://sub2api-app-production.up.railway.app/api/v1` and `https://sub2api-app-production.up.railway.app`.
+  - Production public settings currently return `backend_mode_enabled=true`, `registration_enabled=false`, and `payment_enabled=false`.
+  - Existing production `/api/v1/auth/login` intentionally blocks non-admin users while backend mode is enabled.
+  - Production CORS currently rejects browser preflight from local preview origins such as `http://127.0.0.1:4177` and `Origin: null`, so a raw `file://` preview cannot complete browser login against production until the frontend is served from an allowed origin or a same-origin proxy.
+- Implemented:
+  - Added customer auth methods in `backend/internal/handler/auth_handler.go`: `CustomerLogin`, `CustomerLogin2FA`, and `CustomerRefreshToken`.
+  - Added `backend/internal/server/routes/customer.go` with a narrow `/api/v1/customer/...` self-service surface for SpearRelay.
+  - Wired customer routes in `backend/internal/server/router.go`.
+  - Updated `spearrelay/app.js` to call `/api/v1/customer/auth/login`, `/api/v1/customer/auth/register`, `/api/v1/customer/auth/refresh`, `/api/v1/customer/user/profile`, `/api/v1/customer/keys`, `/api/v1/customer/payment/...`, and `/api/v1/customer/subscriptions/summary`.
+  - Updated `spearrelay/README.md` with the customer endpoint list.
+- Intended behavior after backend deploy:
+  - Same Sub2API user table and passwords.
+  - Admin users and normal users can both log in to SpearRelay if their account is active.
+  - SpearRelay still exposes only billing/key/model/order/docs customer actions.
+  - Sub2API admin/operator WebUI can remain backend-mode/admin-only.
+- Still required before live customer browser QA:
+  - Deploy the backend route changes.
+  - Serve SpearRelay from the final customer domain through a same-origin backend proxy, or add the final customer origin to `cors.allowed_origins` on the Sub2API backend.
+  - Enable payment config/Stripe provider if purchase flows should be live; current public settings report `payment_enabled=false`.
+- Verification:
+  - `node --check spearrelay/app.js`
+  - `git diff --check`
+  - `python3 -m http.server 4177 --directory spearrelay`
+  - `curl -fsS http://127.0.0.1:4177/ >/tmp/spearrelay-index.html && curl -fsS http://127.0.0.1:4177/app.js >/tmp/spearrelay-app.js && node --check /tmp/spearrelay-app.js`
+  - Live read-only probes against current production confirmed the backend-mode and CORS blockers listed above.
+  - Current production `/api/v1/customer/auth/login` returns `404` before this backend change is deployed, which is expected.
+- Not verified:
+  - Go compile/tests were not run because this shell has no `go` or `gofmt` binary on `PATH`.
+  - Customer login cannot be live-smoked until the backend route changes are deployed and CORS/same-origin hosting is configured.
+
+## 2026-05-05 SpearRelay Apple-like UI pass
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api/spearrelay`.
+- User asked to use the `design-taste-frontend` skill and review `DavidHDev/react-bits` for UI/UX improvement, with a minimalist, translucent, Apple-like, interactive direction and less text.
+- React Bits review:
+  - React Bits is a React component library for animated text, UI, and backgrounds.
+  - The repo license is `MIT + Commons Clause`; commercial use inside an app/site is allowed, but reselling, sublicensing, or redistributing the components themselves is restricted.
+  - SpearRelay is currently a framework-free static app, so no React Bits component source was copied or imported.
+- Implemented:
+  - Reworked the standalone SpearRelay home/portal/docs/auth copy to be shorter and more customer-focused.
+  - Replaced the heavier terminal/brutalist look with a translucent glass interface, neutral Apple-like palette, high-end sans font stack, soft mesh background, and asymmetric bento layout.
+  - Added vanilla CSS/JS interaction equivalents inspired by React Bits patterns: magnetic buttons, cursor spotlight glass panels, reveal transitions, shimmer skeleton loading states, and soft perpetual motion in the product preview.
+  - Preserved the existing customer-safe API wiring for signup/signin, key copy/rotation, model fetch, billing, orders, Stripe Payment Element, Turnstile, and docs.
+- Boundary preserved:
+  - No Sub2API backend code or existing admin WebUI files were changed in this UI pass.
+  - No admin endpoints, upstream account data, provider secrets, payment secrets, or operator settings were exposed.
+- Verification:
+  - `node --check spearrelay/app.js`
+  - `git diff --check`
+  - `python3 -m http.server 4177 --directory spearrelay`
+  - `curl -fsS http://127.0.0.1:4177/`
+  - `curl -fsS http://127.0.0.1:4177/app.js`
+  - `curl -fsS http://127.0.0.1:4177/styles.css`
+
+## 2026-05-05 Xifeng admin promotion
+
+- Scope: production Railway service `sub2api-app`.
+- User requested `xifengzhu520@gmail.com` be checked and added as admin if it already exists.
+- Access path:
+  - Used the locally linked Railway project for `/Users/benzhang/dev/aptidus-sub2api`.
+  - Connected to the running Railway app container with `railway ssh`.
+  - Used `psql` inside the app container, so no database password or admin key was printed.
+- Result:
+  - Existing user found: `id=7`, `xifengzhu520@gmail.com`.
+  - Before update: `role=user`, `internal_usage=false`, `status=active`.
+  - Updated row to `role=admin`, `internal_usage=true`, `status=active`.
+  - Verification query after update returned `role=admin`, `internal_usage=true`, `status=active`.
+- Note:
+  - If this user is already logged in, they may need to log out and log back in for the admin role to appear immediately.
+- Secret handling:
+  - No API keys, Railway token, database password, admin password, JWT, or customer API key was written to this handover.
+
+## 2026-05-05 Xifeng password reset
+
+- Scope: production Railway service `sub2api-app`.
+- User requested a password reset for `xifengzhu520@gmail.com`.
+- Action:
+  - Generated a new bcrypt password hash locally with Apache `htpasswd -B`.
+  - Converted the hash prefix to the Go-compatible bcrypt prefix.
+  - Updated only `users.password_hash` and `users.updated_at` for the existing production user row.
+- Result:
+  - User row `id=7`, `xifengzhu520@gmail.com` remains `role=admin`, `internal_usage=true`, `status=active`.
+  - Verification query showed a 60-character bcrypt hash on the user row.
+  - Login smoke check against `https://sub2api-app-production.up.railway.app/api/v1/auth/login` returned HTTP `200`, `code=0`, `role=admin`, `status=active`.
+- Caveat:
+  - Production DB currently does not have a `token_version` column, so this direct reset could not increment token version to force-expire existing sessions. The user can log in with the new password; existing sessions may last until their normal expiry depending on the deployed auth code.
+- Secret handling:
+  - The temporary password was not written to this handover.
+  - No JWT, refresh token, admin key, database password, Railway token, or customer API key was written to this handover.
+
+## 2026-05-05 SpearRelay standalone customer site
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api/spearrelay`.
+- User clarified SpearRelay must be separate from the Sub2API WebUI. Sub2API should remain the admin/operator system for users, upstream accounts, models, routing, and payment-provider settings. SpearRelay should be the premium customer-facing commercial site, with Sub2API only acting as the invisible backend.
+- Correction:
+  - Removed the earlier in-WebUI `/spearrelay` route/page approach.
+  - Restored the existing Sub2API frontend route/test/register changes from that approach.
+- Implemented:
+  - Added standalone static app under `spearrelay/`.
+  - Added `spearrelay/index.html`, `spearrelay/styles.css`, `spearrelay/app.js`, `spearrelay/config.js`, `spearrelay/config.example.js`, and `spearrelay/README.md`.
+  - SpearRelay has its own premium visual system and does not import or reuse the Sub2API Vue admin WebUI components, router, layout, Tailwind theme, or i18n.
+  - SpearRelay calls only existing customer-safe Sub2API endpoints for auth, profile, keys, key rotation, checkout, orders, subscriptions, and model discovery.
+  - SpearRelay reads public settings and supports Turnstile on signin/signup if Sub2API has Turnstile enabled.
+  - No new Sub2API backend endpoint was added in this pass.
+- Customer capabilities in the standalone app:
+  - Signup/signin.
+  - Customer portal with balance, provisioned API key, key copy, key rotation, available-model fetch, token top-up, subscription plan purchase, recent orders, and API docs.
+  - Stripe top-up PaymentIntent support through Stripe Payment Element when the backend returns a `client_secret`.
+  - Stripe subscription checkout redirect when the backend returns a `pay_url`.
+- Boundary preserved:
+  - No admin endpoints are used.
+  - No upstream account data, provider secrets, admin keys, cost internals, group management, model routing controls, or Sub2API operator settings are exposed.
+  - `config.js` contains only public browser config; it must never contain Sub2API admin keys, Stripe secret keys, OAuth tokens, or upstream credentials.
+- Verification:
+  - `node --check spearrelay/app.js`
+  - `git diff -- frontend/src/router/index.ts frontend/src/router/__tests__/guards.spec.ts frontend/src/router/README.md frontend/src/views/auth/RegisterView.vue frontend/src/views/SpearRelayLandingView.vue` returned no diff, confirming the earlier in-WebUI route changes were removed.
+  - `git diff --check`
+  - `python3 -m http.server 4177 --directory spearrelay`
+  - `curl -fsS http://127.0.0.1:4177/`
+  - `curl -fsS http://127.0.0.1:4177/app.js >/tmp/spearrelay-app.js && node --check /tmp/spearrelay-app.js`
+
+## 2026-05-03 SpearAgent local install 503 diagnosis
+
+- Scope: local SpearAgent install at `/Users/benzhang/SpearAgent` plus production Sub2API.
+- User reported a fresh Mac Studio SpearAgent error:
+  - `503 {"error":{"type":"service_unavailable","message":"Proxy is currently disabled. Enable it from the dashboard."}}`
+- Diagnosis:
+  - This message comes from the old Spear Proxy production endpoint, not from the newly created `beib70812@gmail.com` Sub2API key.
+  - The old Spear Proxy production service was intentionally disabled after upstream accounts were migrated to Sub2API.
+  - Local `/Users/benzhang/.spearagent-webui/local-provider.env` has Sub2API configured and the WebUI route API is live at `localhost:25809`.
+  - `GET /api/managed-model-routing/options?backend=claude` returns `sub2apiAvailable=true` and Sub2API models including `claude-opus-4-7`, `claude-sonnet-4-6`, and `claude-haiku-4-5-20251001`.
+  - Recent local conversation logs still showed `currentModelId: "default"` and legacy Claude/SpearProxy model entries, so the failing conversation was using the legacy default route rather than an explicit Sub2API managed route.
+- User-facing guidance:
+  - Start a new conversation and choose an explicit Sub2API route from the model/route selector, for example `claude-sonnet-4-6` or `claude-opus-4-7`.
+  - Avoid the plain `Default`/legacy Claude route until SpearAgent is patched to remove the disabled SpearProxy fallback.
+- No API keys, admin credentials, or OAuth tokens were written to this handover.
+
+## 2026-05-03 Test user provisioning: beib70812@gmail.com
+
+- Scope: production Sub2API at `https://sub2api-app-production.up.railway.app`.
+- User requested a test user for `beib70812@gmail.com` in the `default` group and asked for the API key.
+- Result:
+  - The user already existed, so it was reused rather than duplicated.
+  - Production user id: `8`.
+  - Default group id: `1`.
+  - The user was updated as a normal non-admin user with `internal_usage=true`.
+  - A fresh API key was created for this user.
+  - API key id: `12`.
+  - API key `internal_usage=true`.
+- Verification:
+  - Authenticated `/v1/models` with the new API key returned HTTP `200`.
+  - The key saw `6` available models.
+- Secret handling:
+  - The newly issued API key was returned to the user in-chat per request.
+  - The full API key, admin password, admin JWT, and Railway secrets were not written to this handover.
+
 ## 2026-05-02 Leif 503 compatibility + user model visibility
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`.

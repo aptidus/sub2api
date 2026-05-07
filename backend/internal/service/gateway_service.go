@@ -2523,6 +2523,10 @@ func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, 
 		return true
 	}
 
+	if !s.isAccountWithinRiskCaps(ctx, account) {
+		return false
+	}
+
 	limit := account.GetWindowCostLimit()
 	if limit <= 0 {
 		return true // 未启用窗口费用限制
@@ -2573,6 +2577,86 @@ checkSchedulability:
 		return false
 	}
 	return true
+}
+
+func (s *GatewayService) isAccountWithinRiskCaps(ctx context.Context, account *Account) bool {
+	if s == nil || account == nil || !account.IsAnthropicOAuthOrSetupToken() || s.usageLogRepo == nil {
+		return true
+	}
+	reader, ok := s.usageLogRepo.(accountRiskUsageReader)
+	if !ok {
+		return true
+	}
+
+	maxRequests5m := account.getExtraInt("risk_max_requests_5m")
+	if maxRequests5m <= 0 {
+		maxRequests5m = 120
+	}
+	maxCacheRead5m := account.getExtraInt("risk_max_cache_read_tokens_5m")
+	if maxCacheRead5m <= 0 {
+		maxCacheRead5m = 2000000
+	}
+	maxTokens5h := account.getExtraInt("risk_max_total_tokens_5h")
+	if maxTokens5h <= 0 {
+		maxTokens5h = 80000000
+	}
+	maxUsers5m := account.getExtraInt("risk_max_distinct_users_5m")
+	if maxUsers5m <= 0 {
+		maxUsers5m = 10
+	}
+	maxIPs5m := account.getExtraInt("risk_max_distinct_ips_5m")
+	if maxIPs5m <= 0 {
+		maxIPs5m = 10
+	}
+
+	now := time.Now()
+	ids := []int64{account.ID}
+	fiveMinute, err := reader.GetAccountRiskWindowStatsBatch(ctx, ids, now.Add(-5*time.Minute), now)
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "risk cap 5m query failed: account_id=%d err=%v", account.ID, err)
+		return true
+	}
+	fiveHour, err := reader.GetAccountRiskWindowStatsBatch(ctx, ids, now.Add(-5*time.Hour), now)
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "risk cap 5h query failed: account_id=%d err=%v", account.ID, err)
+		return true
+	}
+
+	stats5m := fiveMinute[account.ID]
+	stats5h := fiveHour[account.ID]
+	var reasons []string
+	if stats5m.Requests >= int64(maxRequests5m) {
+		reasons = append(reasons, fmt.Sprintf("requests_5m=%d limit=%d", stats5m.Requests, maxRequests5m))
+	}
+	if stats5m.CacheReadTokens >= int64(maxCacheRead5m) {
+		reasons = append(reasons, fmt.Sprintf("cache_read_5m=%d limit=%d", stats5m.CacheReadTokens, maxCacheRead5m))
+	}
+	if stats5h.Tokens >= int64(maxTokens5h) {
+		reasons = append(reasons, fmt.Sprintf("tokens_5h=%d limit=%d", stats5h.Tokens, maxTokens5h))
+	}
+	if stats5m.DistinctUsers >= int64(maxUsers5m) {
+		reasons = append(reasons, fmt.Sprintf("distinct_users_5m=%d limit=%d", stats5m.DistinctUsers, maxUsers5m))
+	}
+	if stats5m.DistinctIPs >= int64(maxIPs5m) {
+		reasons = append(reasons, fmt.Sprintf("distinct_ips_5m=%d limit=%d", stats5m.DistinctIPs, maxIPs5m))
+	}
+	if len(reasons) == 0 {
+		return true
+	}
+
+	pauseMinutes := account.getExtraInt("risk_cap_pause_minutes")
+	if pauseMinutes <= 0 {
+		pauseMinutes = 30
+	}
+	until := now.Add(time.Duration(pauseMinutes) * time.Minute)
+	reason := fmt.Sprintf(`{"reason":"account_risk_cap_exceeded","until_unix":%d,"details":%q}`, until.Unix(), strings.Join(reasons, "; "))
+	if s.accountRepo != nil {
+		if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+			logger.LegacyPrintf("service.gateway", "risk cap temp-unschedulable failed: account_id=%d err=%v", account.ID, err)
+		}
+	}
+	logger.LegacyPrintf("service.gateway", "risk cap exceeded: account_id=%d reasons=%s until=%s", account.ID, strings.Join(reasons, "; "), until.Format(time.RFC3339))
+	return false
 }
 
 // rpmPrefetchContextKey is the context key for prefetched RPM counts.

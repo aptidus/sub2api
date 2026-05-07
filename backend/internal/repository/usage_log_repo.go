@@ -2207,6 +2207,132 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 	return result, nil
 }
 
+func (r *usageLogRepository) GetAccountRiskWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]service.AccountRiskWindowStats, error) {
+	result := make(map[int64]service.AccountRiskWindowStats, len(accountIDs))
+	if len(accountIDs) == 0 {
+		return result, nil
+	}
+
+	query := `
+		SELECT
+			ul.account_id,
+			COUNT(*) AS requests,
+			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) AS tokens,
+			COALESCE(SUM(ul.cache_read_tokens), 0) AS cache_read_tokens,
+			COUNT(DISTINCT NULLIF(ul.user_id, 0)) AS distinct_users,
+			COUNT(DISTINCT NULLIF(ul.api_key_id, 0)) AS distinct_api_keys,
+			COUNT(DISTINCT NULLIF(ul.ip_address, '')) AS distinct_ips,
+			MAX(ul.created_at) AS last_request_at,
+			COUNT(*) FILTER (WHERE COALESCE(u.internal_usage, false) OR COALESCE(ak.internal_usage, false)) AS internal_requests,
+			COUNT(*) FILTER (WHERE NOT (COALESCE(u.internal_usage, false) OR COALESCE(ak.internal_usage, false))) AS external_requests
+		FROM usage_logs ul
+		LEFT JOIN users u ON u.id = ul.user_id
+		LEFT JOIN api_keys ak ON ak.id = ul.api_key_id
+		WHERE ul.account_id = ANY($1) AND ul.created_at >= $2 AND ul.created_at < $3
+		GROUP BY ul.account_id
+	`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var item service.AccountRiskWindowStats
+		var lastRequestAt sql.NullTime
+		if err := rows.Scan(
+			&item.AccountID,
+			&item.Requests,
+			&item.Tokens,
+			&item.CacheReadTokens,
+			&item.DistinctUsers,
+			&item.DistinctAPIKeys,
+			&item.DistinctIPs,
+			&lastRequestAt,
+			&item.InternalRequests,
+			&item.ExternalRequests,
+		); err != nil {
+			return nil, err
+		}
+		if lastRequestAt.Valid {
+			t := lastRequestAt.Time
+			item.LastRequestAt = &t
+		}
+		result[item.AccountID] = item
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *usageLogRepository) GetAccountRiskDimensionStats(ctx context.Context, accountIDs []int64, startTime, endTime time.Time, dimension string, limit int) (map[int64][]service.AccountRiskDimensionStat, error) {
+	result := make(map[int64][]service.AccountRiskDimensionStat, len(accountIDs))
+	if len(accountIDs) == 0 {
+		return result, nil
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 5
+	}
+
+	labelExpr := ""
+	joinSQL := ""
+	switch strings.TrimSpace(dimension) {
+	case "user":
+		joinSQL = "LEFT JOIN users u ON u.id = ul.user_id"
+		labelExpr = "COALESCE(NULLIF(u.email, ''), ul.user_id::text, 'unknown')"
+	case "api_key":
+		joinSQL = "LEFT JOIN api_keys ak ON ak.id = ul.api_key_id"
+		labelExpr = "COALESCE(NULLIF(ak.name, ''), ul.api_key_id::text, 'unknown')"
+	case "client":
+		labelExpr = "COALESCE(NULLIF(ul.user_agent, ''), 'unknown')"
+	case "ip":
+		labelExpr = "COALESCE(NULLIF(ul.ip_address, ''), 'unknown')"
+	default:
+		return nil, fmt.Errorf("unsupported risk dimension: %s", dimension)
+	}
+
+	query := fmt.Sprintf(`
+		WITH ranked AS (
+			SELECT
+				ul.account_id,
+				%s AS label,
+				COUNT(*) AS requests,
+				COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) AS tokens,
+				COALESCE(SUM(ul.cache_read_tokens), 0) AS cache_read_tokens,
+				ROW_NUMBER() OVER (
+					PARTITION BY ul.account_id
+					ORDER BY COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) DESC
+				) AS rn
+			FROM usage_logs ul
+			%s
+			WHERE ul.account_id = ANY($1) AND ul.created_at >= $2 AND ul.created_at < $3
+			GROUP BY ul.account_id, label
+		)
+		SELECT account_id, label, requests, tokens, cache_read_tokens
+		FROM ranked
+		WHERE rn <= $4
+		ORDER BY account_id ASC, tokens DESC
+	`, labelExpr, joinSQL)
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), startTime, endTime, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var item service.AccountRiskDimensionStat
+		if err := rows.Scan(&item.AccountID, &item.Label, &item.Requests, &item.Tokens, &item.CacheReadTokens); err != nil {
+			return nil, err
+		}
+		result[item.AccountID] = append(result[item.AccountID], item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // GetGeminiUsageTotalsBatch 批量聚合 Gemini 账号在窗口内的 Pro/Flash 请求与用量。
 // 模型分类规则与 service.geminiModelClassFromName 一致：model 包含 flash/lite 视为 flash，其余视为 pro。
 func (r *usageLogRepository) GetGeminiUsageTotalsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]service.GeminiUsageTotals, error) {

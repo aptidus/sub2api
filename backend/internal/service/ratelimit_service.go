@@ -154,6 +154,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		upstreamMsg = truncateForLog([]byte(upstreamMsg), 512)
 	}
 
+	if s.tryAnthropicUsageExhaustionPause(ctx, account, statusCode, upstreamMsg, responseBody) {
+		return true
+	}
+
 	switch statusCode {
 	case 400:
 		// "organization has been disabled" → 永久禁用
@@ -288,6 +292,45 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	}
 
 	return shouldDisable
+}
+
+func (s *RateLimitService) tryAnthropicUsageExhaustionPause(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool {
+	if s == nil || s.accountRepo == nil || account == nil || account.Platform != PlatformAnthropic {
+		return false
+	}
+	if statusCode != http.StatusTooManyRequests && statusCode != http.StatusPaymentRequired && statusCode != http.StatusForbidden && statusCode < 500 {
+		return false
+	}
+	body := strings.ToLower(upstreamMsg)
+	if body == "" && len(responseBody) > 0 {
+		body = strings.ToLower(string(responseBody))
+	}
+	if body == "" {
+		return false
+	}
+
+	usageExhausted := strings.Contains(body, "out of extra usage") ||
+		strings.Contains(body, "add more at claude.ai/settings/usage") ||
+		strings.Contains(body, "workspace admin to add more") ||
+		strings.Contains(body, "admin/settings/usage") ||
+		strings.Contains(body, "usage quota") ||
+		strings.Contains(body, "usage limit")
+	if !usageExhausted {
+		return false
+	}
+
+	pauseMinutes := account.getExtraInt("risk_usage_exhausted_pause_minutes")
+	if pauseMinutes <= 0 {
+		pauseMinutes = 60
+	}
+	until := time.Now().Add(time.Duration(pauseMinutes) * time.Minute)
+	reason := fmt.Sprintf(`{"reason":"anthropic_usage_exhausted","status_code":%d,"until_unix":%d,"message":%q}`, statusCode, until.Unix(), truncateForLog([]byte(upstreamMsg), 240))
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+		slog.Warn("anthropic_usage_exhaustion_pause_failed", "account_id", account.ID, "error", err)
+		return false
+	}
+	slog.Warn("anthropic_usage_exhaustion_paused", "account_id", account.ID, "status_code", statusCode, "until", until.Format(time.RFC3339))
+	return true
 }
 
 // PreCheckUsage proactively checks local quota before dispatching a request.

@@ -109,6 +109,9 @@ func (a *Account) IsSchedulable() bool {
 	if !a.IsActive() || !a.Schedulable {
 		return false
 	}
+	if !a.AllowsProductionTraffic() {
+		return false
+	}
 	now := time.Now()
 	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
 		return false
@@ -1386,6 +1389,23 @@ const (
 // 仅这两类账号支持 5h 窗口额度控制和会话数量控制
 func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 	return a.Platform == PlatformAnthropic && (a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken)
+}
+
+// AllowsProductionTraffic is a hard scheduling guard for account types that are
+// not safe for customer/commercial traffic by default.
+//
+// Anthropic setup-token accounts normally represent personal Claude sessions,
+// not organization-owned OAuth/API-key capacity. They must be explicitly opted
+// in via extra.production_traffic_allowed=true before the scheduler can use
+// them. Corporate OAuth accounts and API-key accounts are unaffected.
+func (a *Account) AllowsProductionTraffic() bool {
+	if a == nil {
+		return false
+	}
+	if a.Platform == PlatformAnthropic && a.Type == AccountTypeSetupToken {
+		return a.getExtraBool("production_traffic_allowed")
+	}
+	return true
 }
 
 // EnsureAnthropicOAuthTLSFingerprintEnabled makes TLS fingerprinting a default
