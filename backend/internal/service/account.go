@@ -1394,10 +1394,9 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 // AllowsProductionTraffic is a hard scheduling guard for account types that are
 // not safe for customer/commercial traffic by default.
 //
-// Anthropic setup-token accounts normally represent personal Claude sessions,
-// not organization-owned OAuth/API-key capacity. They must be explicitly opted
-// in via extra.production_traffic_allowed=true before the scheduler can use
-// them. Corporate OAuth accounts and API-key accounts are unaffected.
+// Anthropic setup-token accounts must be explicitly opted in via
+// extra.production_traffic_allowed=true before the scheduler can use them.
+// OAuth accounts and API-key accounts are unaffected.
 func (a *Account) AllowsProductionTraffic() bool {
 	if a == nil {
 		return false

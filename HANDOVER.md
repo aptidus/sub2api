@@ -1,5 +1,37 @@
 # Sub2API Handover
 
+## 2026-05-06 Anthropic corp risk cap increase
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api` and production Railway service `sub2api-app`.
+- User clarified there are no personal Anthropic accounts in the active pool and approved increasing the risk caps.
+- Incident cause:
+  - Users saw `503 {"error":{"message":"No available accounts: no available accounts"}}`.
+  - Production logs showed scheduler selection failures before any upstream request: `gateway.select_account_no_available`.
+  - Affected requests were on group `1` with Anthropic models such as `claude-sonnet-4-6`, `claude-opus-4-7`, and `claude-haiku-4-5-20251001`.
+  - Admin direct account tests still passed because direct tests bypass the live scheduler risk gates.
+  - Several active corporate Anthropic OAuth accounts were marked `temp_unschedulable` with `account_risk_cap_exceeded` because the previous cache-read cap was only `2,000,000` tokens per account per 5 minutes.
+- Code changes made:
+  - Raised default Anthropic risk caps in `backend/internal/service/gateway_service.go`:
+    - `risk_max_requests_5m`: `1000`
+    - `risk_max_cache_read_tokens_5m`: `25000000`
+    - `risk_max_total_tokens_5h`: `500000000`
+    - `risk_max_distinct_users_5m`: `50`
+    - `risk_max_distinct_ips_5m`: `50`
+    - `risk_cap_pause_minutes`: `10`
+  - Updated the `AllowsProductionTraffic` comment in `backend/internal/service/account.go` to remove the stale assumption that setup-token always means personal.
+- Production operation completed:
+  - Updated all active production Anthropic OAuth accounts with the higher cap overrides.
+  - Cleared `temp_unschedulable_until` and `temp_unschedulable_reason` on active production Anthropic OAuth accounts.
+  - Verified active Anthropic OAuth accounts now show blank temp-unschedulable fields and the new `25000000` cache-read cap / `500000000` 5-hour token cap / `10` minute pause.
+- Live verification:
+  - `GET https://sub2api-app-production.up.railway.app/health` returned `200 {"status":"ok"}`.
+  - A real production `/v1/messages` request using API key id `9` and model `claude-haiku-4-5-20251001` returned HTTP `200`.
+  - A real production `/v1/messages` request using API key id `19` and model `claude-sonnet-4-6` returned HTTP `200`.
+- Local verification:
+  - `gofmt` passed.
+  - `go test ./internal/service -run 'TestSelect|TestGateway|TestAccount|TestRisk|TestScheduler'` passed.
+- No OAuth access token, refresh token, admin key, customer API key, database password, or Stripe secret was written to this handover.
+
 ## 2026-05-06 SpearRelay removal and default WebUI rollback
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`.

@@ -355,6 +355,15 @@ var ErrNoAvailableAccounts = errors.New("no available accounts")
 // ErrClaudeCodeOnly 表示分组仅允许 Claude Code 客户端访问
 var ErrClaudeCodeOnly = errors.New("this group only allows Claude Code clients")
 
+const (
+	defaultAnthropicRiskMaxRequests5m        = 1000
+	defaultAnthropicRiskMaxCacheReadTokens5m = 25000000
+	defaultAnthropicRiskMaxTotalTokens5h     = 500000000
+	defaultAnthropicRiskMaxDistinctUsers5m   = 50
+	defaultAnthropicRiskMaxDistinctIPs5m     = 50
+	defaultAnthropicRiskCapPauseMinutes      = 10
+)
+
 // allowedHeaders 白名单headers（参考CRS项目）
 var allowedHeaders = map[string]bool{
 	"accept":                                    true,
@@ -2590,23 +2599,23 @@ func (s *GatewayService) isAccountWithinRiskCaps(ctx context.Context, account *A
 
 	maxRequests5m := account.getExtraInt("risk_max_requests_5m")
 	if maxRequests5m <= 0 {
-		maxRequests5m = 120
+		maxRequests5m = defaultAnthropicRiskMaxRequests5m
 	}
 	maxCacheRead5m := account.getExtraInt("risk_max_cache_read_tokens_5m")
 	if maxCacheRead5m <= 0 {
-		maxCacheRead5m = 2000000
+		maxCacheRead5m = defaultAnthropicRiskMaxCacheReadTokens5m
 	}
 	maxTokens5h := account.getExtraInt("risk_max_total_tokens_5h")
 	if maxTokens5h <= 0 {
-		maxTokens5h = 80000000
+		maxTokens5h = defaultAnthropicRiskMaxTotalTokens5h
 	}
 	maxUsers5m := account.getExtraInt("risk_max_distinct_users_5m")
 	if maxUsers5m <= 0 {
-		maxUsers5m = 10
+		maxUsers5m = defaultAnthropicRiskMaxDistinctUsers5m
 	}
 	maxIPs5m := account.getExtraInt("risk_max_distinct_ips_5m")
 	if maxIPs5m <= 0 {
-		maxIPs5m = 10
+		maxIPs5m = defaultAnthropicRiskMaxDistinctIPs5m
 	}
 
 	now := time.Now()
@@ -2646,7 +2655,7 @@ func (s *GatewayService) isAccountWithinRiskCaps(ctx context.Context, account *A
 
 	pauseMinutes := account.getExtraInt("risk_cap_pause_minutes")
 	if pauseMinutes <= 0 {
-		pauseMinutes = 30
+		pauseMinutes = defaultAnthropicRiskCapPauseMinutes
 	}
 	until := now.Add(time.Duration(pauseMinutes) * time.Minute)
 	reason := fmt.Sprintf(`{"reason":"account_risk_cap_exceeded","until_unix":%d,"details":%q}`, until.Unix(), strings.Join(reasons, "; "))
