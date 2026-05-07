@@ -10,7 +10,7 @@
   - This avoids `file://` and CORS problems and keeps the admin WebUI separate.
 - Code changes made:
   - `Dockerfile`: copies the `spearrelay/` static site into the runtime image at `/app/spearrelay`.
-  - `backend/internal/server/routes/common.go`: serves SpearRelay from `/spearrelay/` and redirects `/spearrelay` to `/spearrelay/`.
+  - `backend/internal/server/routes/common.go`: serves SpearRelay from `/spearrelay/`, redirects `/spearrelay` to `/spearrelay/`, and exposes only the explicit static files used by the page. Avoid wildcard/catch-all routes here because Gin can panic on route conflicts at boot.
   - `backend/internal/web/embed_on.go`: bypasses the embedded admin frontend for `/spearrelay`, so the admin Vue app does not intercept the commercial site path.
   - `spearrelay/app.js`: removed inline click handlers and replaced them with `data-action` event delegation so the page works under the backend Content-Security-Policy.
   - `backend/internal/handler/admin/admin_service_stub_test.go`: added the missing `AdminDeleteAPIKey` test-stub method so admin handler tests compile with the existing API-key delete capability.
@@ -29,6 +29,8 @@
   - `GET https://sub2api-app-production.up.railway.app/spearrelay/` should return the SpearRelay HTML.
   - `GET https://sub2api-app-production.up.railway.app/spearrelay/app.js` should return the SpearRelay app JavaScript.
   - `POST https://sub2api-app-production.up.railway.app/api/v1/customer/auth/login` with bad credentials should return an auth error, not `404`; that proves the customer routes are live.
+- Production deploy note:
+  - First deployment of commit `84af2d17` booted badly because `/spearrelay/*filepath` conflicted with Gin route registration. The wildcard route was removed and replaced with explicit file routes before the follow-up deployment.
 - No OAuth access token, refresh token, admin key, customer API key, database password, or Stripe secret was written to this handover.
 
 ## 2026-05-06 Upstream risk controls and production safety guard

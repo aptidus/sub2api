@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,21 +47,20 @@ func registerSpearRelayRoutes(r *gin.Engine) {
 	r.GET("/spearrelay/", func(c *gin.Context) {
 		c.File(filepath.Join(dir, "index.html"))
 	})
-	r.GET("/spearrelay/*filepath", func(c *gin.Context) {
-		requested := strings.TrimPrefix(c.Param("filepath"), "/")
-		if requested == "" {
-			c.File(filepath.Join(dir, "index.html"))
-			return
+	serveSpearRelayFile := func(name string) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			filePath := filepath.Join(dir, name)
+			info, err := os.Stat(filePath)
+			if err != nil || info.IsDir() {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			c.File(filePath)
 		}
-		cleaned := strings.TrimPrefix(filepath.Clean("/"+requested), "/")
-		filePath := filepath.Join(dir, cleaned)
-		info, err := os.Stat(filePath)
-		if err != nil || info.IsDir() {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		c.File(filePath)
-	})
+	}
+	for _, name := range []string{"app.js", "config.js", "config.example.js", "styles.css"} {
+		r.GET("/spearrelay/"+name, serveSpearRelayFile(name))
+	}
 }
 
 func spearRelayDir() string {
