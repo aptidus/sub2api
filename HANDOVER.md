@@ -1,5 +1,34 @@
 # Sub2API Handover
 
+## 2026-05-06 SpearRelay removal and default WebUI rollback
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`.
+- User decided not to use the separate SpearRelay frontend and to keep using the default Sub2API WebUI only.
+- Code changes made:
+  - Deleted the standalone `spearrelay/` static frontend.
+  - Removed the Docker image copy step for `spearrelay/`.
+  - Removed backend `/spearrelay` static-file routes from `backend/internal/server/routes/common.go`.
+  - Removed the `/spearrelay` embedded-frontend bypass from `backend/internal/web/embed_on.go`.
+  - Removed the dedicated `/api/v1/customer/...` route registration and deleted `backend/internal/server/routes/customer.go`.
+  - Removed customer-portal-only auth helper methods from `backend/internal/handler/auth_handler.go`; the default auth routes remain.
+- Operational intent:
+  - Normal access should go through the default Sub2API WebUI.
+  - No Stripe/payment setting was enabled in this rollback.
+  - Existing admin/operator functionality should remain intact.
+- Local verification:
+  - `gofmt` passed on edited Go files.
+  - `git diff --check` passed.
+  - `rg -n "SpearRelay|spearrelay|CustomerLogin|CustomerRefreshToken|RegisterCustomerRoutes|/api/v1/customer" backend frontend Dockerfile` returned no active-code matches.
+  - `go test ./internal/server/routes ./internal/server ./internal/handler` passed.
+  - `go test ./internal/service ./internal/repository ./internal/handler ./internal/handler/admin ./internal/server ./internal/server/routes` passed.
+  - `npm run typecheck` in `frontend/` passed.
+- Pending production verification after push:
+  - Verify `/health` stays healthy.
+  - Verify `/` serves the default Sub2API WebUI.
+  - Verify `/spearrelay/` no longer serves the removed frontend.
+  - Verify `/api/v1/customer/auth/login` no longer exists.
+- No OAuth access token, refresh token, admin key, customer API key, database password, or Stripe secret was written to this handover.
+
 ## 2026-05-06 SpearRelay customer portal backend connection
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`, customer-facing SpearRelay static app, and Sub2API backend routes.

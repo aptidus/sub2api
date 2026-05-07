@@ -212,18 +212,6 @@ func (h *AuthHandler) SendVerifyCode(c *gin.Context) {
 // Login handles user login
 // POST /api/v1/auth/login
 func (h *AuthHandler) Login(c *gin.Context) {
-	h.login(c, true)
-}
-
-// CustomerLogin handles login from the standalone customer portal.
-// It intentionally uses the same user table as the admin WebUI, but does not
-// apply backend-mode admin-only blocking because the /customer route only
-// exposes customer-safe self-service endpoints.
-func (h *AuthHandler) CustomerLogin(c *gin.Context) {
-	h.login(c, false)
-}
-
-func (h *AuthHandler) login(c *gin.Context, enforceBackendMode bool) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -243,11 +231,9 @@ func (h *AuthHandler) login(c *gin.Context, enforceBackendMode bool) {
 	}
 	_ = token // token 由 authService.Login 返回但此处由 respondWithTokenPair 重新生成
 
-	if enforceBackendMode {
-		if err := h.ensureBackendModeAllowsUser(c.Request.Context(), user); err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
+	if err := h.ensureBackendModeAllowsUser(c.Request.Context(), user); err != nil {
+		response.ErrorFrom(c, err)
+		return
 	}
 
 	h.finishPasswordLogin(c, user)
@@ -297,15 +283,6 @@ type Login2FARequest struct {
 // Login2FA completes the login with 2FA verification
 // POST /api/v1/auth/login/2fa
 func (h *AuthHandler) Login2FA(c *gin.Context) {
-	h.login2FA(c, true)
-}
-
-// CustomerLogin2FA completes customer-portal login with 2FA verification.
-func (h *AuthHandler) CustomerLogin2FA(c *gin.Context) {
-	h.login2FA(c, false)
-}
-
-func (h *AuthHandler) login2FA(c *gin.Context, enforceBackendMode bool) {
 	var req Login2FARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -354,11 +331,9 @@ func (h *AuthHandler) login2FA(c *gin.Context, enforceBackendMode bool) {
 		return
 	}
 
-	if enforceBackendMode {
-		if err := h.ensureBackendModeAllowsUser(c.Request.Context(), user); err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
+	if err := h.ensureBackendModeAllowsUser(c.Request.Context(), user); err != nil {
+		response.ErrorFrom(c, err)
+		return
 	}
 
 	if session.PendingOAuthBind != nil {
@@ -690,15 +665,6 @@ type RefreshTokenResponse struct {
 // RefreshToken 刷新Token
 // POST /api/v1/auth/refresh
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	h.refreshToken(c, true)
-}
-
-// CustomerRefreshToken refreshes tokens for the standalone customer portal.
-func (h *AuthHandler) CustomerRefreshToken(c *gin.Context) {
-	h.refreshToken(c, false)
-}
-
-func (h *AuthHandler) refreshToken(c *gin.Context, enforceBackendMode bool) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -712,7 +678,7 @@ func (h *AuthHandler) refreshToken(c *gin.Context, enforceBackendMode bool) {
 	}
 
 	// Backend mode: block non-admin token refresh
-	if enforceBackendMode && h.settingSvc.IsBackendModeEnabled(c.Request.Context()) && result.UserRole != "admin" {
+	if h.settingSvc.IsBackendModeEnabled(c.Request.Context()) && result.UserRole != "admin" {
 		response.Forbidden(c, "Backend mode is active. Only admin login is allowed.")
 		return
 	}
