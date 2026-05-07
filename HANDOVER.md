@@ -22,11 +22,13 @@
   - `go test ./internal/server/routes ./internal/server ./internal/handler` passed.
   - `go test ./internal/service ./internal/repository ./internal/handler ./internal/handler/admin ./internal/server ./internal/server/routes` passed.
   - `npm run typecheck` in `frontend/` passed.
-- Pending production verification after push:
-  - Verify `/health` stays healthy.
-  - Verify `/` serves the default Sub2API WebUI.
-  - Verify `/spearrelay/` no longer serves the removed frontend.
-  - Verify `/api/v1/customer/auth/login` no longer exists.
+- Production verification:
+  - Commit `6f46ccf3` deployed successfully as Railway deployment `304bebda-2a20-42d1-bc7d-db1f46adcf30`.
+  - Build log showed the runtime image is back to `stage-3 12/12`; the removed `COPY spearrelay /app/spearrelay` step is no longer present.
+  - `GET https://sub2api-app-production.up.railway.app/health` returned `200 {"status":"ok"}`.
+  - `GET https://sub2api-app-production.up.railway.app/` returned the default Sub2API WebUI HTML (`<title>Sub2API - AI API Gateway</title>`).
+  - `GET https://sub2api-app-production.up.railway.app/spearrelay/` no longer returned SpearRelay content; it now falls back to the default Sub2API WebUI shell.
+  - `POST https://sub2api-app-production.up.railway.app/api/v1/customer/auth/login` returned `404 page not found`, confirming the dedicated customer route surface is removed.
 - No OAuth access token, refresh token, admin key, customer API key, database password, or Stripe secret was written to this handover.
 
 ## 2026-05-06 SpearRelay customer portal backend connection
