@@ -25,12 +25,21 @@
   - `npm run typecheck` in `frontend/` passed.
   - `npm run build` in `frontend/` passed with existing Vite chunk/import warnings.
   - `go build -tags embed ./cmd/server` in `backend/` passed.
-- Production deploy still needs final verification after push:
-  - `GET https://sub2api-app-production.up.railway.app/spearrelay/` should return the SpearRelay HTML.
-  - `GET https://sub2api-app-production.up.railway.app/spearrelay/app.js` should return the SpearRelay app JavaScript.
-  - `POST https://sub2api-app-production.up.railway.app/api/v1/customer/auth/login` with bad credentials should return an auth error, not `404`; that proves the customer routes are live.
 - Production deploy note:
   - First deployment of commit `84af2d17` booted badly because `/spearrelay/*filepath` conflicted with Gin route registration. The wildcard route was removed and replaced with explicit file routes before the follow-up deployment.
+  - Follow-up commit `b8025eb7` deployed successfully as Railway deployment `8f9fddb3-8a9a-4bea-980d-b614ffaa354b`.
+  - Live verification passed:
+    - `GET https://sub2api-app-production.up.railway.app/health` returned `200 {"status":"ok"}`.
+    - `GET https://sub2api-app-production.up.railway.app/spearrelay/` returned `200` and the SpearRelay HTML.
+    - `GET https://sub2api-app-production.up.railway.app/spearrelay/app.js` returned `200` and the SpearRelay app JavaScript.
+    - `GET https://sub2api-app-production.up.railway.app/spearrelay/styles.css` returned `200`.
+    - `GET https://sub2api-app-production.up.railway.app/spearrelay/config.js` returned `200`.
+    - `GET https://sub2api-app-production.up.railway.app/spearrelay` returned `301` to `/spearrelay/`.
+    - `POST https://sub2api-app-production.up.railway.app/api/v1/customer/auth/login` with bad credentials returned `401 invalid email or password`, not `404`, proving the customer auth route is live.
+    - Live SpearRelay HTML/JS had no `onclick=` handlers, so it is compatible with the backend CSP.
+- Remaining launch toggles:
+  - Production public settings currently report `registration_enabled=false` and `payment_enabled=false`.
+  - That means the site is connected and live, but public signup and real customer purchases are still administratively disabled until those settings and the Stripe/payment provider setup are intentionally turned on.
 - No OAuth access token, refresh token, admin key, customer API key, database password, or Stripe secret was written to this handover.
 
 ## 2026-05-06 Upstream risk controls and production safety guard
