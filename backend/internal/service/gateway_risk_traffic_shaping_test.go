@@ -63,4 +63,29 @@ func TestEvaluateAccountRiskSchedulability(t *testing.T) {
 			t.Fatal("hard-capped account should be blocked")
 		}
 	})
+
+	t.Run("display limits use same threshold math", func(t *testing.T) {
+		limits := buildAccountTrafficShapeLimits(account, AccountRiskWindowStats{
+			AccountID:       1,
+			Requests:        70,
+			CacheReadTokens: 900,
+		}, AccountRiskWindowStats{
+			AccountID: 1,
+			Tokens:    10000,
+		})
+
+		byName := make(map[string]AccountTrafficShapeLimit, len(limits))
+		for _, limit := range limits {
+			byName[limit.Name] = limit
+		}
+		if byName["requests_5m"].State != "throttled" {
+			t.Fatalf("requests_5m state = %q, want throttled", byName["requests_5m"].State)
+		}
+		if byName["cache_read_5m"].State != "sticky_only" {
+			t.Fatalf("cache_read_5m state = %q, want sticky_only", byName["cache_read_5m"].State)
+		}
+		if byName["tokens_5h"].State != "hard_cap" {
+			t.Fatalf("tokens_5h state = %q, want hard_cap", byName["tokens_5h"].State)
+		}
+	})
 }

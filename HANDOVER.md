@@ -1,5 +1,27 @@
 # Sub2API Handover
 
+## 2026-05-08 Admin traffic-shape visibility
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`.
+- Goal: make the Anthropic traffic-shaping state visible in the admin account table so admins can see whether an upstream account is normal, throttled, sticky-only, or at hard cap.
+- Backend changes:
+  - Added `AccountTrafficShapeStatus` and `AccountTrafficShapeLimit` to `backend/internal/service/account_usage_service.go`.
+  - Added `GetTrafficShapeStatusBatch`, which uses the same 5-minute and 5-hour usage-log windows as the live scheduler.
+  - Refactored `evaluateAccountRiskSchedulability` in `backend/internal/service/gateway_service.go` so the scheduler and dashboard status use shared threshold math.
+  - Added `traffic_shape` to admin account-list responses in `backend/internal/handler/admin/account_handler.go`.
+- Frontend changes:
+  - Added `traffic_shape` types in `frontend/src/types/index.ts`.
+  - Added a compact traffic-shape badge in `frontend/src/components/account/AccountCapacityCell.vue`.
+  - Updated account-list auto-refresh comparison in `frontend/src/views/admin/AccountsView.vue` so traffic-shape state changes update live.
+- Verification passed:
+  - `go test ./internal/service -run TestEvaluateAccountRiskSchedulability`
+  - `pnpm --dir frontend exec vue-tsc --noEmit`
+  - `go test ./internal/service ./internal/handler ./internal/server/routes`
+  - `pnpm --dir frontend run build`
+- Build notes:
+  - Frontend build completed with existing Vite chunk-size/dynamic-import warnings; no new build failure.
+- Not deployed yet in this handover entry.
+
 ## 2026-05-08 Anthropic traffic shaping implementation
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`.

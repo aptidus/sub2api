@@ -171,9 +171,10 @@ type AccountWithConcurrency struct {
 	*dto.Account
 	CurrentConcurrency int `json:"current_concurrency"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
-	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
-	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
-	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	CurrentWindowCost *float64                           `json:"current_window_cost,omitempty"` // 当前窗口费用
+	ActiveSessions    *int                               `json:"active_sessions,omitempty"`     // 当前活跃会话数
+	CurrentRPM        *int                               `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	TrafficShape      *service.AccountTrafficShapeStatus `json:"traffic_shape,omitempty"`
 }
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
@@ -215,6 +216,14 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		if h.rpmCache != nil && account.GetBaseRPM() > 0 {
 			if rpm, err := h.rpmCache.GetRPM(ctx, account.ID); err == nil {
 				item.CurrentRPM = &rpm
+			}
+		}
+
+		if h.accountUsageService != nil {
+			if statuses, err := h.accountUsageService.GetTrafficShapeStatusBatch(ctx, []service.Account{*account}); err == nil {
+				if status, ok := statuses[account.ID]; ok {
+					item.TrafficShape = &status
+				}
 			}
 		}
 	}
@@ -274,6 +283,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
+	var trafficShapeStatuses map[int64]service.AccountTrafficShapeStatus
 
 	// 始终获取并发数（Redis ZCARD，极低开销）
 	if h.concurrencyService != nil {
@@ -347,6 +357,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 		_ = g.Wait()
 	}
 
+	if h.accountUsageService != nil {
+		if statuses, riskErr := h.accountUsageService.GetTrafficShapeStatusBatch(c.Request.Context(), accounts); riskErr == nil {
+			trafficShapeStatuses = statuses
+		}
+	}
+
 	// Build response with concurrency info
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
@@ -374,6 +390,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 		if rpmCounts != nil {
 			if rpm, ok := rpmCounts[acc.ID]; ok {
 				item.CurrentRPM = &rpm
+			}
+		}
+
+		if trafficShapeStatuses != nil {
+			if status, ok := trafficShapeStatuses[acc.ID]; ok {
+				item.TrafficShape = &status
 			}
 		}
 

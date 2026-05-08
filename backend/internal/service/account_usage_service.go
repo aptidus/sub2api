@@ -92,6 +92,24 @@ type AccountRiskWindowStats struct {
 	ExternalRequests int64      `json:"external_requests"`
 }
 
+type AccountTrafficShapeLimit struct {
+	Name  string  `json:"name"`
+	Used  int64   `json:"used"`
+	Limit int     `json:"limit"`
+	Ratio float64 `json:"ratio"`
+	State string  `json:"state"`
+}
+
+type AccountTrafficShapeStatus struct {
+	State      string                     `json:"state"`
+	Score      float64                    `json:"score"`
+	Reasons    []string                   `json:"reasons,omitempty"`
+	FiveMinute AccountRiskWindowStats     `json:"five_minute"`
+	FiveHour   AccountRiskWindowStats     `json:"five_hour"`
+	Limits     []AccountTrafficShapeLimit `json:"limits,omitempty"`
+	UpdatedAt  time.Time                  `json:"updated_at"`
+}
+
 type AccountRiskDimensionStat struct {
 	AccountID       int64  `json:"account_id"`
 	Label           string `json:"label"`
@@ -1475,6 +1493,63 @@ func (s *AccountUsageService) GetRiskReport(ctx context.Context, platform string
 	}
 
 	return report, nil
+}
+
+func (s *AccountUsageService) GetTrafficShapeStatusBatch(ctx context.Context, accounts []Account) (map[int64]AccountTrafficShapeStatus, error) {
+	result := make(map[int64]AccountTrafficShapeStatus)
+	if s == nil || s.usageLogRepo == nil || len(accounts) == 0 {
+		return result, nil
+	}
+
+	reader, ok := s.usageLogRepo.(accountRiskUsageReader)
+	if !ok {
+		return result, nil
+	}
+
+	accountByID := make(map[int64]*Account)
+	accountIDs := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		account := &accounts[i]
+		if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+			continue
+		}
+		accountByID[account.ID] = account
+		accountIDs = append(accountIDs, account.ID)
+	}
+	if len(accountIDs) == 0 {
+		return result, nil
+	}
+
+	now := time.Now()
+	fiveMinute, err := reader.GetAccountRiskWindowStatsBatch(ctx, accountIDs, now.Add(-5*time.Minute), now)
+	if err != nil {
+		return nil, err
+	}
+	fiveHour, err := reader.GetAccountRiskWindowStatsBatch(ctx, accountIDs, now.Add(-5*time.Hour), now)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, accountID := range accountIDs {
+		account := accountByID[accountID]
+		if account == nil {
+			continue
+		}
+		stats5m := fiveMinute[accountID]
+		stats5h := fiveHour[accountID]
+		evaluation := evaluateAccountRiskSchedulability(account, stats5m, stats5h)
+		result[accountID] = AccountTrafficShapeStatus{
+			State:      riskSchedulabilityStateName(evaluation.schedulability),
+			Score:      evaluation.score,
+			Reasons:    evaluation.reasons,
+			FiveMinute: stats5m,
+			FiveHour:   stats5h,
+			Limits:     buildAccountTrafficShapeLimits(account, stats5m, stats5h),
+			UpdatedAt:  now,
+		}
+	}
+
+	return result, nil
 }
 
 func classifyAccountRisk(account *Account, fiveMinute AccountRiskWindowStats, fiveHour AccountRiskWindowStats) (string, []string, string) {

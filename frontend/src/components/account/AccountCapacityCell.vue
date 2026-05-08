@@ -28,6 +28,13 @@
       </svg>
     </CapacityBadge>
 
+    <!-- Anthropic traffic-shaping risk -->
+    <CapacityBadge v-if="showTrafficShape" :color-class="trafficShapeClass" :tooltip="trafficShapeTooltip" :current="trafficShapePercent" max="cap" :suffix="trafficShapeSuffix">
+      <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5a8.25 8.25 0 1 0 16.5 0c0-2.225-1.285-4.186-2.736-5.923-.42-.503-1.224-.2-1.166.454.08.914-.154 1.83-.67 2.59-.113.167-.367.115-.413-.08-.394-1.68-1.329-3.184-2.682-4.288L10.5 4.554a.62.62 0 0 0-.998.48v1.993c0 1.466-.61 2.867-1.684 3.865A5.63 5.63 0 0 0 6 15" />
+      </svg>
+    </CapacityBadge>
+
     <!-- API Key 账号配额限制 -->
     <QuotaBadge v-if="showDailyQuota" :used="account.quota_daily_used ?? 0" :limit="account.quota_daily_limit!" label="D" />
     <QuotaBadge v-if="showWeeklyQuota" :used="account.quota_weekly_used ?? 0" :limit="account.quota_weekly_limit!" label="W" />
@@ -169,10 +176,61 @@ const rpmTooltip = computed(() => {
   }
 })
 
+// ====== Traffic shape ======
+const showTrafficShape = computed(() =>
+  isAnthropicOAuthOrSetupToken.value &&
+  props.account.traffic_shape != null
+)
+
+const trafficShape = computed(() => props.account.traffic_shape)
+
+const trafficShapePercent = computed(() => {
+  const score = Math.max(0, trafficShape.value?.score ?? 0)
+  return `${Math.round(score * 100)}%`
+})
+
+const trafficShapeSuffix = computed(() => {
+  const state = trafficShape.value?.state
+  if (state === 'hard_cap') return 'H'
+  if (state === 'sticky_only') return 'S'
+  if (state === 'throttled') return 'T'
+  return 'R'
+})
+
+const trafficShapeClass = computed(() => {
+  const state = trafficShape.value?.state
+  if (state === 'hard_cap') return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+  if (state === 'sticky_only') return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+  if (state === 'throttled') return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+})
+
+const trafficShapeTooltip = computed(() => {
+  const status = trafficShape.value
+  if (!status) return ''
+
+  const stateLabel = status.state === 'hard_cap'
+    ? 'hard cap'
+    : status.state === 'sticky_only'
+      ? 'sticky-only'
+      : status.state === 'throttled'
+        ? 'throttled'
+        : 'normal'
+  const reasons = status.reasons?.length ? `: ${status.reasons.join('; ')}` : ''
+  return `Traffic shape ${stateLabel}. 5m ${formatNumber(status.five_minute.requests)} req, ${formatNumber(status.five_minute.cache_read_tokens)} cache-read tokens. 5h ${formatNumber(status.five_hour.tokens)} tokens${reasons}`
+})
+
 // 格式化费用显示
 const formatCost = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '0'
   return value.toFixed(2)
+}
+
+const formatNumber = (value: number | null | undefined) => {
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1
+  }).format(value ?? 0)
 }
 
 // ====== 配额 ======

@@ -863,6 +863,38 @@ export interface Account {
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
+  traffic_shape?: AccountTrafficShapeStatus | null
+}
+
+export interface AccountRiskWindowStats {
+  account_id: number
+  requests: number
+  tokens: number
+  cache_read_tokens: number
+  distinct_users: number
+  distinct_api_keys: number
+  distinct_ips: number
+  internal_requests: number
+  external_requests: number
+  last_request_at?: string
+}
+
+export interface AccountTrafficShapeLimit {
+  name: string
+  used: number
+  limit: number
+  ratio: number
+  state: 'normal' | 'throttled' | 'sticky_only' | 'hard_cap'
+}
+
+export interface AccountTrafficShapeStatus {
+  state: 'normal' | 'throttled' | 'sticky_only' | 'hard_cap'
+  score: number
+  reasons?: string[]
+  five_minute: AccountRiskWindowStats
+  five_hour: AccountRiskWindowStats
+  limits?: AccountTrafficShapeLimit[]
+  updated_at: string
 }
 
 // Account Usage types

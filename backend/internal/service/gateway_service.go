@@ -2752,45 +2752,16 @@ func evaluateAccountRiskSchedulability(account *Account, stats5m, stats5h Accoun
 		return accountRiskEvaluation{schedulability: WindowCostSchedulable}
 	}
 
-	throttleRatio := account.getExtraFloat64("risk_throttle_ratio")
-	if throttleRatio <= 0 {
-		throttleRatio = defaultAnthropicRiskThrottleRatio
-	}
-	stickyOnlyRatio := account.getExtraFloat64("risk_sticky_only_ratio")
-	if stickyOnlyRatio <= 0 {
-		stickyOnlyRatio = defaultAnthropicRiskStickyOnlyRatio
-	}
-	hardCapRatio := account.getExtraFloat64("risk_hard_cap_ratio")
-	if hardCapRatio <= 0 {
-		hardCapRatio = defaultAnthropicRiskHardCapRatio
-	}
-	if stickyOnlyRatio < throttleRatio {
-		stickyOnlyRatio = throttleRatio
-	}
-	if hardCapRatio < stickyOnlyRatio {
-		hardCapRatio = stickyOnlyRatio
-	}
-
-	limits := []struct {
-		name  string
-		used  int64
-		limit int
-	}{
-		{name: "requests_5m", used: stats5m.Requests, limit: extraIntDefault(account, "risk_max_requests_5m", defaultAnthropicRiskMaxRequests5m)},
-		{name: "cache_read_5m", used: stats5m.CacheReadTokens, limit: extraIntDefault(account, "risk_max_cache_read_tokens_5m", defaultAnthropicRiskMaxCacheReadTokens5m)},
-		{name: "tokens_5h", used: stats5h.Tokens, limit: extraIntDefault(account, "risk_max_total_tokens_5h", defaultAnthropicRiskMaxTotalTokens5h)},
-		{name: "distinct_users_5m", used: stats5m.DistinctUsers, limit: extraIntDefault(account, "risk_max_distinct_users_5m", defaultAnthropicRiskMaxDistinctUsers5m)},
-		{name: "distinct_ips_5m", used: stats5m.DistinctIPs, limit: extraIntDefault(account, "risk_max_distinct_ips_5m", defaultAnthropicRiskMaxDistinctIPs5m)},
-	}
+	throttleRatio := accountRiskThrottleRatio(account)
+	stickyOnlyRatio := accountRiskStickyOnlyRatio(account)
+	hardCapRatio := accountRiskHardCapRatio(account)
 
 	state := WindowCostSchedulable
 	score := 0.0
+	limits := buildAccountRiskLimitUsages(account, stats5m, stats5h)
 	reasons := make([]string, 0, len(limits))
 	for _, item := range limits {
-		if item.limit <= 0 {
-			continue
-		}
-		ratio := float64(item.used) / float64(item.limit)
+		ratio := item.ratio
 		if ratio > score {
 			score = ratio
 		}
@@ -2814,6 +2785,128 @@ func evaluateAccountRiskSchedulability(account *Account, stats5m, stats5h Accoun
 		score:          score,
 		reasons:        reasons,
 	}
+}
+
+type accountRiskLimitUsage struct {
+	name  string
+	used  int64
+	limit int
+	ratio float64
+}
+
+func buildAccountRiskLimitUsages(account *Account, stats5m, stats5h AccountRiskWindowStats) []accountRiskLimitUsage {
+	if account == nil {
+		return nil
+	}
+	raw := []struct {
+		name  string
+		used  int64
+		limit int
+	}{
+		{name: "requests_5m", used: stats5m.Requests, limit: extraIntDefault(account, "risk_max_requests_5m", defaultAnthropicRiskMaxRequests5m)},
+		{name: "cache_read_5m", used: stats5m.CacheReadTokens, limit: extraIntDefault(account, "risk_max_cache_read_tokens_5m", defaultAnthropicRiskMaxCacheReadTokens5m)},
+		{name: "tokens_5h", used: stats5h.Tokens, limit: extraIntDefault(account, "risk_max_total_tokens_5h", defaultAnthropicRiskMaxTotalTokens5h)},
+		{name: "distinct_users_5m", used: stats5m.DistinctUsers, limit: extraIntDefault(account, "risk_max_distinct_users_5m", defaultAnthropicRiskMaxDistinctUsers5m)},
+		{name: "distinct_ips_5m", used: stats5m.DistinctIPs, limit: extraIntDefault(account, "risk_max_distinct_ips_5m", defaultAnthropicRiskMaxDistinctIPs5m)},
+	}
+
+	limits := make([]accountRiskLimitUsage, 0, len(raw))
+	for _, item := range raw {
+		if item.limit <= 0 {
+			continue
+		}
+		limits = append(limits, accountRiskLimitUsage{
+			name:  item.name,
+			used:  item.used,
+			limit: item.limit,
+			ratio: float64(item.used) / float64(item.limit),
+		})
+	}
+	return limits
+}
+
+func buildAccountTrafficShapeLimits(account *Account, stats5m, stats5h AccountRiskWindowStats) []AccountTrafficShapeLimit {
+	limits := buildAccountRiskLimitUsages(account, stats5m, stats5h)
+	if len(limits) == 0 {
+		return nil
+	}
+
+	out := make([]AccountTrafficShapeLimit, 0, len(limits))
+	for _, item := range limits {
+		out = append(out, AccountTrafficShapeLimit{
+			Name:  item.name,
+			Used:  item.used,
+			Limit: item.limit,
+			Ratio: item.ratio,
+			State: riskRatioStateName(account, item.ratio),
+		})
+	}
+	return out
+}
+
+func riskRatioStateName(account *Account, ratio float64) string {
+	if ratio >= accountRiskHardCapRatio(account) {
+		return "hard_cap"
+	}
+	if ratio >= accountRiskStickyOnlyRatio(account) {
+		return "sticky_only"
+	}
+	if ratio >= accountRiskThrottleRatio(account) {
+		return "throttled"
+	}
+	return "normal"
+}
+
+func riskSchedulabilityStateName(state WindowCostSchedulability) string {
+	switch state {
+	case WindowCostStickyOnly:
+		return "sticky_only"
+	case WindowCostNotSchedulable:
+		return "hard_cap"
+	default:
+		return "normal"
+	}
+}
+
+func accountRiskThrottleRatio(account *Account) float64 {
+	if account == nil {
+		return defaultAnthropicRiskThrottleRatio
+	}
+	ratio := account.getExtraFloat64("risk_throttle_ratio")
+	if ratio <= 0 {
+		ratio = defaultAnthropicRiskThrottleRatio
+	}
+	return ratio
+}
+
+func accountRiskStickyOnlyRatio(account *Account) float64 {
+	throttleRatio := accountRiskThrottleRatio(account)
+	if account == nil {
+		return defaultAnthropicRiskStickyOnlyRatio
+	}
+	ratio := account.getExtraFloat64("risk_sticky_only_ratio")
+	if ratio <= 0 {
+		ratio = defaultAnthropicRiskStickyOnlyRatio
+	}
+	if ratio < throttleRatio {
+		return throttleRatio
+	}
+	return ratio
+}
+
+func accountRiskHardCapRatio(account *Account) float64 {
+	stickyOnlyRatio := accountRiskStickyOnlyRatio(account)
+	if account == nil {
+		return defaultAnthropicRiskHardCapRatio
+	}
+	ratio := account.getExtraFloat64("risk_hard_cap_ratio")
+	if ratio <= 0 {
+		ratio = defaultAnthropicRiskHardCapRatio
+	}
+	if ratio < stickyOnlyRatio {
+		return stickyOnlyRatio
+	}
+	return ratio
 }
 
 func extraIntDefault(account *Account, key string, defaultValue int) int {
