@@ -30,11 +30,16 @@
   - `go test ./internal/service -run 'TestEvaluateAccountRiskSchedulability|TestSelect|TestGateway|TestAccount|TestRisk|TestScheduler'`
   - `git diff --check`
   - `go test ./internal/service ./internal/handler ./internal/server/routes`
+  - First Railway deployment of commit `0afbf96d` failed before release because Docker used `pnpm@latest`, and the latest pnpm now rejects ignored build scripts without approval.
+  - Follow-up build fix pins both `Dockerfile` and `deploy/Dockerfile` to `pnpm@9.15.9`.
+  - Verified locally with `docker build --target frontend-builder -t sub2api-frontend-build-check .`; frontend install and production build passed.
 - Files changed:
+  - `Dockerfile`
+  - `deploy/Dockerfile`
   - `backend/internal/service/gateway_service.go`
   - `backend/internal/handler/gateway_handler.go`
   - `backend/internal/service/gateway_risk_traffic_shaping_test.go`
-- Deployment status: not deployed in this run unless a later push/deploy entry says otherwise.
+- Deployment status: traffic-shaping commit `0afbf96d` pushed; first Railway build failed due pnpm tooling drift. A follow-up Dockerfile pin is being pushed to unblock deployment.
 
 ## 2026-05-06 Anthropic corp risk cap increase
 
