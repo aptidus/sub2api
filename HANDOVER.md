@@ -20,7 +20,11 @@
   - `pnpm --dir frontend run build`
 - Build notes:
   - Frontend build completed with existing Vite chunk-size/dynamic-import warnings; no new build failure.
-- Not deployed yet in this handover entry.
+- Deployment status:
+  - Commit `e783922f` pushed to `origin/main`.
+  - Railway deployment `52434f57-001b-48f9-a871-2e3b08d4705f` succeeded.
+  - Production health check returned `200 {"status":"ok"}`.
+  - Post-deploy log check found no new `no available accounts`, `accounts temporarily throttled`, panic, fatal, or error-level runtime entries. Existing startup warnings remain about URL allowlist, CORS allowed origins, trusted proxy config, and long JWT expiry.
 
 ## 2026-05-08 Anthropic traffic shaping implementation
 
