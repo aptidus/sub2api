@@ -328,6 +328,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
+					if errors.Is(err, service.ErrAccountsThrottled) {
+						h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Traffic is temporarily throttled to protect upstream quota, please retry shortly", streamStarted)
+						return
+					}
 					reqLog.Warn("gateway.select_account_no_available",
 						zap.String("model", reqModel),
 						zap.Int64p("group_id", apiKey.GroupID),
@@ -569,6 +573,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
+					if errors.Is(err, service.ErrAccountsThrottled) {
+						h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Traffic is temporarily throttled to protect upstream quota, please retry shortly", streamStarted)
+						return
+					}
 					reqLog.Warn("gateway.select_account_no_available",
 						zap.String("model", reqModel),
 						zap.Int64p("group_id", currentAPIKey.GroupID),

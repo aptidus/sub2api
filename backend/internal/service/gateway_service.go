@@ -352,6 +352,10 @@ var (
 // ErrNoAvailableAccounts 表示没有可用的账号
 var ErrNoAvailableAccounts = errors.New("no available accounts")
 
+// ErrAccountsThrottled means accounts exist, but gateway-side traffic shaping is
+// intentionally slowing traffic to protect upstream quota/risk posture.
+var ErrAccountsThrottled = errors.New("accounts temporarily throttled")
+
 // ErrClaudeCodeOnly 表示分组仅允许 Claude Code 客户端访问
 var ErrClaudeCodeOnly = errors.New("this group only allows Claude Code clients")
 
@@ -361,7 +365,9 @@ const (
 	defaultAnthropicRiskMaxTotalTokens5h     = 500000000
 	defaultAnthropicRiskMaxDistinctUsers5m   = 50
 	defaultAnthropicRiskMaxDistinctIPs5m     = 50
-	defaultAnthropicRiskCapPauseMinutes      = 10
+	defaultAnthropicRiskThrottleRatio        = 0.70
+	defaultAnthropicRiskStickyOnlyRatio      = 0.85
+	defaultAnthropicRiskHardCapRatio         = 1.00
 )
 
 // allowedHeaders 白名单headers（参考CRS项目）
@@ -1541,6 +1547,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
+	ctx = s.withRiskPrefetch(ctx, accounts)
 
 	// 提前构建 accountByID（供 Layer 1 和 Layer 1.5 使用）
 	accountByID := make(map[int64]*Account, len(accounts))
@@ -1581,7 +1588,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	if len(routingAccountIDs) > 0 && s.concurrencyService != nil {
 		// 1. 过滤出路由列表中可调度的账号
 		var routingCandidates []*Account
-		var filteredExcluded, filteredMissing, filteredUnsched, filteredPlatform, filteredModelScope, filteredModelMapping, filteredWindowCost int
+		var filteredExcluded, filteredMissing, filteredUnsched, filteredPlatform, filteredModelScope, filteredModelMapping, filteredWindowCost, filteredRisk int
 		var modelScopeSkippedIDs []int64 // 记录因模型限流被跳过的账号 ID
 		for _, routingAccountID := range routingAccountIDs {
 			if isExcluded(routingAccountID) {
@@ -1614,6 +1621,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			if !s.isAccountSchedulableForQuota(account) {
 				continue
 			}
+			if !s.isAccountSchedulableForRisk(ctx, account, false) {
+				filteredRisk++
+				continue
+			}
 			// 窗口费用检查（非粘性会话路径）
 			if !s.isAccountSchedulableForWindowCost(ctx, account, false) {
 				filteredWindowCost++
@@ -1627,9 +1638,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 
 		if s.debugModelRoutingEnabled() {
-			logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed candidates: group_id=%v model=%s routed=%d candidates=%d filtered(excluded=%d missing=%d unsched=%d platform=%d model_scope=%d model_mapping=%d window_cost=%d)",
+			logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed candidates: group_id=%v model=%s routed=%d candidates=%d filtered(excluded=%d missing=%d unsched=%d platform=%d model_scope=%d model_mapping=%d risk=%d window_cost=%d)",
 				derefGroupID(groupID), requestedModel, len(routingAccountIDs), len(routingCandidates),
-				filteredExcluded, filteredMissing, filteredUnsched, filteredPlatform, filteredModelScope, filteredModelMapping, filteredWindowCost)
+				filteredExcluded, filteredMissing, filteredUnsched, filteredPlatform, filteredModelScope, filteredModelMapping, filteredRisk, filteredWindowCost)
 			if len(modelScopeSkippedIDs) > 0 {
 				logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] model_rate_limited accounts skipped: group_id=%v model=%s account_ids=%v",
 					derefGroupID(groupID), requestedModel, modelScopeSkippedIDs)
@@ -1656,6 +1667,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 							(requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, stickyAccount, requestedModel)) &&
 							s.isAccountSchedulableForModelSelection(ctx, stickyAccount, requestedModel) &&
 							s.isAccountSchedulableForQuota(stickyAccount) &&
+							s.isAccountSchedulableForRisk(ctx, stickyAccount, true) &&
 							s.isAccountSchedulableForWindowCost(ctx, stickyAccount, true)
 
 						rpmPass := gatePass && s.isAccountSchedulableForRPM(ctx, stickyAccount, true)
@@ -1760,6 +1772,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
 						return a.loadInfo.LoadRate < b.loadInfo.LoadRate
 					}
+					if as, bs := riskScoreFromPrefetchContext(ctx, a.account.ID), riskScoreFromPrefetchContext(ctx, b.account.ID); as != bs {
+						return as < bs
+					}
 					switch {
 					case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
 						return true
@@ -1839,6 +1854,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				modelSupported := requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)
 				modelSchedulable := s.isAccountSchedulableForModelSelection(ctx, account, requestedModel)
 				quotaOK := s.isAccountSchedulableForQuota(account)
+				riskOK := s.isAccountSchedulableForRisk(ctx, account, true)
 				windowCostOK := s.isAccountSchedulableForWindowCost(ctx, account, true)
 				rpmOK := s.isAccountSchedulableForRPM(ctx, account, true)
 				schedulable := s.isAccountSchedulableForSelection(account)
@@ -1852,11 +1868,12 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					"model_supported", modelSupported,
 					"model_schedulable", modelSchedulable,
 					"quota_ok", quotaOK,
+					"risk_ok", riskOK,
 					"window_cost_ok", windowCostOK,
 					"rpm_ok", rpmOK,
 				)
 
-				if !clearSticky && platformOK && modelSupported && modelSchedulable && quotaOK && windowCostOK && rpmOK && schedulable {
+				if !clearSticky && platformOK && modelSupported && modelSchedulable && quotaOK && riskOK && windowCostOK && rpmOK && schedulable {
 					result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 					if err == nil && result.Acquired {
 						// 会话数量限制检查
@@ -1941,6 +1958,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		"total_accounts", len(accounts),
 	)
 	candidates := make([]*Account, 0, len(accounts))
+	riskLimitedCandidates := 0
 	for i := range accounts {
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
@@ -1965,6 +1983,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		if !s.isAccountSchedulableForQuota(acc) {
 			continue
 		}
+		if !s.isAccountSchedulableForRisk(ctx, acc, false) {
+			riskLimitedCandidates++
+			continue
+		}
 		// 窗口费用检查（非粘性会话路径）
 		if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
 			continue
@@ -1977,6 +1999,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	if len(candidates) == 0 {
+		if riskLimitedCandidates > 0 {
+			return nil, ErrAccountsThrottled
+		}
 		return nil, ErrNoAvailableAccounts
 	}
 
@@ -2016,7 +2041,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			candidates := filterByMinPriority(available)
 			// 2. 取负载率最低的集合
 			candidates = filterByMinLoadRate(candidates)
-			// 3. LRU 选择最久未用的账号
+			// 3. 取风险/用量速度最低的集合
+			candidates = filterByMinRiskScore(ctx, candidates)
+			// 4. LRU 选择最久未用的账号
 			selected := selectByLRU(candidates, preferOAuth)
 			if selected == nil {
 				break
@@ -2399,6 +2426,22 @@ type windowCostPrefetchContextKeyType struct{}
 
 var windowCostPrefetchContextKey = windowCostPrefetchContextKeyType{}
 
+type riskPrefetchContextKeyType struct{}
+
+var riskPrefetchContextKey = riskPrefetchContextKeyType{}
+
+type accountRiskPrefetchValue struct {
+	fiveMinute AccountRiskWindowStats
+	fiveHour   AccountRiskWindowStats
+	evaluation accountRiskEvaluation
+}
+
+type accountRiskEvaluation struct {
+	schedulability WindowCostSchedulability
+	score          float64
+	reasons        []string
+}
+
 func windowCostFromPrefetchContext(ctx context.Context, accountID int64) (float64, bool) {
 	if ctx == nil || accountID <= 0 {
 		return 0, false
@@ -2514,6 +2557,77 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 	return context.WithValue(ctx, windowCostPrefetchContextKey, costs)
 }
 
+func riskFromPrefetchContext(ctx context.Context, accountID int64) (accountRiskPrefetchValue, bool) {
+	if ctx == nil || accountID <= 0 {
+		return accountRiskPrefetchValue{}, false
+	}
+	m, ok := ctx.Value(riskPrefetchContextKey).(map[int64]accountRiskPrefetchValue)
+	if !ok || len(m) == 0 {
+		return accountRiskPrefetchValue{}, false
+	}
+	v, exists := m[accountID]
+	return v, exists
+}
+
+func riskScoreFromPrefetchContext(ctx context.Context, accountID int64) float64 {
+	if v, ok := riskFromPrefetchContext(ctx, accountID); ok {
+		return v.evaluation.score
+	}
+	return 0
+}
+
+func (s *GatewayService) withRiskPrefetch(ctx context.Context, accounts []Account) context.Context {
+	if ctx == nil || len(accounts) == 0 || s.usageLogRepo == nil {
+		return ctx
+	}
+	reader, ok := s.usageLogRepo.(accountRiskUsageReader)
+	if !ok {
+		return ctx
+	}
+
+	accountByID := make(map[int64]*Account)
+	accountIDs := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		account := &accounts[i]
+		if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+			continue
+		}
+		accountByID[account.ID] = account
+		accountIDs = append(accountIDs, account.ID)
+	}
+	if len(accountIDs) == 0 {
+		return ctx
+	}
+
+	now := time.Now()
+	fiveMinute, err := reader.GetAccountRiskWindowStatsBatch(ctx, accountIDs, now.Add(-5*time.Minute), now)
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "risk prefetch 5m query failed: accounts=%d err=%v", len(accountIDs), err)
+		return ctx
+	}
+	fiveHour, err := reader.GetAccountRiskWindowStatsBatch(ctx, accountIDs, now.Add(-5*time.Hour), now)
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "risk prefetch 5h query failed: accounts=%d err=%v", len(accountIDs), err)
+		return ctx
+	}
+
+	values := make(map[int64]accountRiskPrefetchValue, len(accountIDs))
+	for _, accountID := range accountIDs {
+		account := accountByID[accountID]
+		if account == nil {
+			continue
+		}
+		stats5m := fiveMinute[accountID]
+		stats5h := fiveHour[accountID]
+		values[accountID] = accountRiskPrefetchValue{
+			fiveMinute: stats5m,
+			fiveHour:   stats5h,
+			evaluation: evaluateAccountRiskSchedulability(account, stats5m, stats5h),
+		}
+	}
+	return context.WithValue(ctx, riskPrefetchContextKey, values)
+}
+
 // isAccountSchedulableForQuota 检查账号是否在配额限制内
 // 适用于配置了 quota_limit 的 apikey 和 bedrock 类型账号
 func (s *GatewayService) isAccountSchedulableForQuota(account *Account) bool {
@@ -2530,10 +2644,6 @@ func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, 
 	// 只检查 Anthropic OAuth/SetupToken 账号
 	if !account.IsAnthropicOAuthOrSetupToken() {
 		return true
-	}
-
-	if !s.isAccountWithinRiskCaps(ctx, account) {
-		return false
 	}
 
 	limit := account.GetWindowCostLimit()
@@ -2588,34 +2698,17 @@ checkSchedulability:
 	return true
 }
 
-func (s *GatewayService) isAccountWithinRiskCaps(ctx context.Context, account *Account) bool {
+func (s *GatewayService) isAccountSchedulableForRisk(ctx context.Context, account *Account, isSticky bool) bool {
 	if s == nil || account == nil || !account.IsAnthropicOAuthOrSetupToken() || s.usageLogRepo == nil {
 		return true
 	}
+	if prefetched, ok := riskFromPrefetchContext(ctx, account.ID); ok {
+		return riskEvaluationAllows(prefetched.evaluation, isSticky)
+	}
+
 	reader, ok := s.usageLogRepo.(accountRiskUsageReader)
 	if !ok {
 		return true
-	}
-
-	maxRequests5m := account.getExtraInt("risk_max_requests_5m")
-	if maxRequests5m <= 0 {
-		maxRequests5m = defaultAnthropicRiskMaxRequests5m
-	}
-	maxCacheRead5m := account.getExtraInt("risk_max_cache_read_tokens_5m")
-	if maxCacheRead5m <= 0 {
-		maxCacheRead5m = defaultAnthropicRiskMaxCacheReadTokens5m
-	}
-	maxTokens5h := account.getExtraInt("risk_max_total_tokens_5h")
-	if maxTokens5h <= 0 {
-		maxTokens5h = defaultAnthropicRiskMaxTotalTokens5h
-	}
-	maxUsers5m := account.getExtraInt("risk_max_distinct_users_5m")
-	if maxUsers5m <= 0 {
-		maxUsers5m = defaultAnthropicRiskMaxDistinctUsers5m
-	}
-	maxIPs5m := account.getExtraInt("risk_max_distinct_ips_5m")
-	if maxIPs5m <= 0 {
-		maxIPs5m = defaultAnthropicRiskMaxDistinctIPs5m
 	}
 
 	now := time.Now()
@@ -2633,39 +2726,104 @@ func (s *GatewayService) isAccountWithinRiskCaps(ctx context.Context, account *A
 
 	stats5m := fiveMinute[account.ID]
 	stats5h := fiveHour[account.ID]
-	var reasons []string
-	if stats5m.Requests >= int64(maxRequests5m) {
-		reasons = append(reasons, fmt.Sprintf("requests_5m=%d limit=%d", stats5m.Requests, maxRequests5m))
+	evaluation := evaluateAccountRiskSchedulability(account, stats5m, stats5h)
+	if !riskEvaluationAllows(evaluation, isSticky) {
+		logger.LegacyPrintf("service.gateway", "risk traffic-shape blocked: account_id=%d sticky=%t state=%d score=%.4f reasons=%s",
+			account.ID, isSticky, evaluation.schedulability, evaluation.score, strings.Join(evaluation.reasons, "; "))
 	}
-	if stats5m.CacheReadTokens >= int64(maxCacheRead5m) {
-		reasons = append(reasons, fmt.Sprintf("cache_read_5m=%d limit=%d", stats5m.CacheReadTokens, maxCacheRead5m))
-	}
-	if stats5h.Tokens >= int64(maxTokens5h) {
-		reasons = append(reasons, fmt.Sprintf("tokens_5h=%d limit=%d", stats5h.Tokens, maxTokens5h))
-	}
-	if stats5m.DistinctUsers >= int64(maxUsers5m) {
-		reasons = append(reasons, fmt.Sprintf("distinct_users_5m=%d limit=%d", stats5m.DistinctUsers, maxUsers5m))
-	}
-	if stats5m.DistinctIPs >= int64(maxIPs5m) {
-		reasons = append(reasons, fmt.Sprintf("distinct_ips_5m=%d limit=%d", stats5m.DistinctIPs, maxIPs5m))
-	}
-	if len(reasons) == 0 {
+	return riskEvaluationAllows(evaluation, isSticky)
+}
+
+func riskEvaluationAllows(evaluation accountRiskEvaluation, isSticky bool) bool {
+	switch evaluation.schedulability {
+	case WindowCostSchedulable:
+		return true
+	case WindowCostStickyOnly:
+		return isSticky
+	case WindowCostNotSchedulable:
+		return false
+	default:
 		return true
 	}
+}
 
-	pauseMinutes := account.getExtraInt("risk_cap_pause_minutes")
-	if pauseMinutes <= 0 {
-		pauseMinutes = defaultAnthropicRiskCapPauseMinutes
+func evaluateAccountRiskSchedulability(account *Account, stats5m, stats5h AccountRiskWindowStats) accountRiskEvaluation {
+	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		return accountRiskEvaluation{schedulability: WindowCostSchedulable}
 	}
-	until := now.Add(time.Duration(pauseMinutes) * time.Minute)
-	reason := fmt.Sprintf(`{"reason":"account_risk_cap_exceeded","until_unix":%d,"details":%q}`, until.Unix(), strings.Join(reasons, "; "))
-	if s.accountRepo != nil {
-		if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
-			logger.LegacyPrintf("service.gateway", "risk cap temp-unschedulable failed: account_id=%d err=%v", account.ID, err)
+
+	throttleRatio := account.getExtraFloat64("risk_throttle_ratio")
+	if throttleRatio <= 0 {
+		throttleRatio = defaultAnthropicRiskThrottleRatio
+	}
+	stickyOnlyRatio := account.getExtraFloat64("risk_sticky_only_ratio")
+	if stickyOnlyRatio <= 0 {
+		stickyOnlyRatio = defaultAnthropicRiskStickyOnlyRatio
+	}
+	hardCapRatio := account.getExtraFloat64("risk_hard_cap_ratio")
+	if hardCapRatio <= 0 {
+		hardCapRatio = defaultAnthropicRiskHardCapRatio
+	}
+	if stickyOnlyRatio < throttleRatio {
+		stickyOnlyRatio = throttleRatio
+	}
+	if hardCapRatio < stickyOnlyRatio {
+		hardCapRatio = stickyOnlyRatio
+	}
+
+	limits := []struct {
+		name  string
+		used  int64
+		limit int
+	}{
+		{name: "requests_5m", used: stats5m.Requests, limit: extraIntDefault(account, "risk_max_requests_5m", defaultAnthropicRiskMaxRequests5m)},
+		{name: "cache_read_5m", used: stats5m.CacheReadTokens, limit: extraIntDefault(account, "risk_max_cache_read_tokens_5m", defaultAnthropicRiskMaxCacheReadTokens5m)},
+		{name: "tokens_5h", used: stats5h.Tokens, limit: extraIntDefault(account, "risk_max_total_tokens_5h", defaultAnthropicRiskMaxTotalTokens5h)},
+		{name: "distinct_users_5m", used: stats5m.DistinctUsers, limit: extraIntDefault(account, "risk_max_distinct_users_5m", defaultAnthropicRiskMaxDistinctUsers5m)},
+		{name: "distinct_ips_5m", used: stats5m.DistinctIPs, limit: extraIntDefault(account, "risk_max_distinct_ips_5m", defaultAnthropicRiskMaxDistinctIPs5m)},
+	}
+
+	state := WindowCostSchedulable
+	score := 0.0
+	reasons := make([]string, 0, len(limits))
+	for _, item := range limits {
+		if item.limit <= 0 {
+			continue
+		}
+		ratio := float64(item.used) / float64(item.limit)
+		if ratio > score {
+			score = ratio
+		}
+		if ratio >= hardCapRatio {
+			state = WindowCostNotSchedulable
+			reasons = append(reasons, fmt.Sprintf("%s=%d limit=%d ratio=%.3f hard", item.name, item.used, item.limit, ratio))
+			continue
+		}
+		if ratio >= stickyOnlyRatio && state < WindowCostStickyOnly {
+			state = WindowCostStickyOnly
+		}
+		if ratio >= stickyOnlyRatio {
+			reasons = append(reasons, fmt.Sprintf("%s=%d limit=%d ratio=%.3f sticky_only", item.name, item.used, item.limit, ratio))
+		} else if ratio >= throttleRatio {
+			reasons = append(reasons, fmt.Sprintf("%s=%d limit=%d ratio=%.3f throttled", item.name, item.used, item.limit, ratio))
 		}
 	}
-	logger.LegacyPrintf("service.gateway", "risk cap exceeded: account_id=%d reasons=%s until=%s", account.ID, strings.Join(reasons, "; "), until.Format(time.RFC3339))
-	return false
+
+	return accountRiskEvaluation{
+		schedulability: state,
+		score:          score,
+		reasons:        reasons,
+	}
+}
+
+func extraIntDefault(account *Account, key string, defaultValue int) int {
+	if account == nil {
+		return defaultValue
+	}
+	if v := account.getExtraInt(key); v > 0 {
+		return v
+	}
+	return defaultValue
 }
 
 // rpmPrefetchContextKey is the context key for prefetched RPM counts.
@@ -2847,6 +3005,28 @@ func filterByMinLoadRate(accounts []accountWithLoad) []accountWithLoad {
 	result := make([]accountWithLoad, 0, len(accounts))
 	for _, acc := range accounts {
 		if acc.loadInfo.LoadRate == minLoadRate {
+			result = append(result, acc)
+		}
+	}
+	return result
+}
+
+// filterByMinRiskScore keeps the accounts with the lowest recent token/risk
+// velocity. If no risk prefetch exists, all accounts get score 0 and behavior is
+// unchanged.
+func filterByMinRiskScore(ctx context.Context, accounts []accountWithLoad) []accountWithLoad {
+	if len(accounts) == 0 {
+		return accounts
+	}
+	minScore := riskScoreFromPrefetchContext(ctx, accounts[0].account.ID)
+	for _, acc := range accounts[1:] {
+		if score := riskScoreFromPrefetchContext(ctx, acc.account.ID); score < minScore {
+			minScore = score
+		}
+	}
+	result := make([]accountWithLoad, 0, len(accounts))
+	for _, acc := range accounts {
+		if riskScoreFromPrefetchContext(ctx, acc.account.ID) == minScore {
 			result = append(result, acc)
 		}
 	}
@@ -3117,7 +3297,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
-						if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
+						if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForRisk(ctx, account, true) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 							if s.debugModelRoutingEnabled() {
 								logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
 							}
@@ -3143,6 +3323,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		// 提前预取窗口费用+RPM 计数，确保 routing 段内的调度检查调用能命中缓存
 		ctx = s.withWindowCostPrefetch(ctx, accounts)
 		ctx = s.withRPMPrefetch(ctx, accounts)
+		ctx = s.withRiskPrefetch(ctx, accounts)
 
 		routingSet := make(map[int64]struct{}, len(routingAccountIDs))
 		for _, id := range routingAccountIDs {
@@ -3152,6 +3333,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		}
 
 		var selected *Account
+		riskLimitedCandidates := 0
 		for i := range accounts {
 			acc := &accounts[i]
 			if _, ok := routingSet[acc.ID]; !ok {
@@ -3178,6 +3360,10 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				continue
 			}
 			if !s.isAccountSchedulableForQuota(acc) {
+				continue
+			}
+			if !s.isAccountSchedulableForRisk(ctx, acc, false) {
+				riskLimitedCandidates++
 				continue
 			}
 			if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
@@ -3236,7 +3422,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
-					if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
+					if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForRisk(ctx, account, true) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
 						return account, nil
 					}
 				}
@@ -3260,12 +3446,14 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	// 批量预取窗口费用+RPM 计数，避免逐个账号查询（N+1）
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
+	ctx = s.withRiskPrefetch(ctx, accounts)
 
 	// 3. 按优先级+最久未用选择（考虑模型支持）
 	// needsUpstreamCheck 仅在主选择循环中使用；粘性会话命中时跳过此检查，
 	// 因为粘性会话优先保持连接一致性，且 upstream 计费基准极少使用。
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 	var selected *Account
+	riskLimitedCandidates := 0
 	for i := range accounts {
 		acc := &accounts[i]
 		if _, excluded := excludedIDs[acc.ID]; excluded {
@@ -3292,6 +3480,10 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			continue
 		}
 		if !s.isAccountSchedulableForQuota(acc) {
+			continue
+		}
+		if !s.isAccountSchedulableForRisk(ctx, acc, false) {
+			riskLimitedCandidates++
 			continue
 		}
 		if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
@@ -3325,6 +3517,9 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	}
 
 	if selected == nil {
+		if riskLimitedCandidates > 0 {
+			return nil, ErrAccountsThrottled
+		}
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
 		if requestedModel != "" {
 			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
@@ -3375,7 +3570,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
-						if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
+						if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForRisk(ctx, account, true) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
 							if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
 								if s.debugModelRoutingEnabled() {
 									logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy mixed routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
@@ -3399,6 +3594,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		// 提前预取窗口费用+RPM 计数，确保 routing 段内的调度检查调用能命中缓存
 		ctx = s.withWindowCostPrefetch(ctx, accounts)
 		ctx = s.withRPMPrefetch(ctx, accounts)
+		ctx = s.withRiskPrefetch(ctx, accounts)
 
 		routingSet := make(map[int64]struct{}, len(routingAccountIDs))
 		for _, id := range routingAccountIDs {
@@ -3408,6 +3604,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		}
 
 		var selected *Account
+		riskLimitedCandidates := 0
 		for i := range accounts {
 			acc := &accounts[i]
 			if _, ok := routingSet[acc.ID]; !ok {
@@ -3438,6 +3635,10 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 				continue
 			}
 			if !s.isAccountSchedulableForQuota(acc) {
+				continue
+			}
+			if !s.isAccountSchedulableForRisk(ctx, acc, false) {
+				riskLimitedCandidates++
 				continue
 			}
 			if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
@@ -3496,7 +3697,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
-					if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
+					if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForRisk(ctx, account, true) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 						if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
 							return account, nil
 						}
@@ -3518,11 +3719,13 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	// 批量预取窗口费用+RPM 计数，避免逐个账号查询（N+1）
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
+	ctx = s.withRiskPrefetch(ctx, accounts)
 
 	// 3. 按优先级+最久未用选择（考虑模型支持和混合调度）
 	// needsUpstreamCheck 仅在主选择循环中使用；粘性会话命中时跳过此检查。
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 	var selected *Account
+	riskLimitedCandidates := 0
 	for i := range accounts {
 		acc := &accounts[i]
 		if _, excluded := excludedIDs[acc.ID]; excluded {
@@ -3553,6 +3756,10 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 			continue
 		}
 		if !s.isAccountSchedulableForQuota(acc) {
+			continue
+		}
+		if !s.isAccountSchedulableForRisk(ctx, acc, false) {
+			riskLimitedCandidates++
 			continue
 		}
 		if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
@@ -3586,6 +3793,9 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	}
 
 	if selected == nil {
+		if riskLimitedCandidates > 0 {
+			return nil, ErrAccountsThrottled
+		}
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)
 		if requestedModel != "" {
 			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))

@@ -1,5 +1,41 @@
 # Sub2API Handover
 
+## 2026-05-08 Anthropic traffic shaping implementation
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`.
+- Goal: slow down token depletion across upstream Anthropic OAuth accounts instead of letting healthy accounts all hard-pause and causing customer-facing `503 no available accounts`.
+- Backend changes:
+  - Added `ErrAccountsThrottled` so traffic-shaping exhaustion can return a clean `429 rate_limit_error` instead of a misleading `503`.
+  - Added risk/velocity prefetch in `GatewayService.SelectAccountWithLoadAwareness`; the scheduler now queries recent 5-minute and 5-hour account risk stats once per selection pass.
+  - Added account risk states based on existing usage logs:
+    - below `risk_throttle_ratio` defaults to normal scheduling.
+    - above `risk_throttle_ratio` gets a higher risk score and is deprioritized versus cooler accounts.
+    - above `risk_sticky_only_ratio` is only allowed for existing sticky sessions.
+    - above `risk_hard_cap_ratio` is blocked until usage drops out of the rolling window.
+  - Existing account `extra` limits are reused:
+    - `risk_max_requests_5m`
+    - `risk_max_cache_read_tokens_5m`
+    - `risk_max_total_tokens_5h`
+    - `risk_max_distinct_users_5m`
+    - `risk_max_distinct_ips_5m`
+  - New optional account `extra` tuning keys:
+    - `risk_throttle_ratio` default `0.70`
+    - `risk_sticky_only_ratio` default `0.85`
+    - `risk_hard_cap_ratio` default `1.00`
+- Behavior notes:
+  - Internal/admin API calls are still counted in upstream risk/velocity because Anthropic sees that traffic too.
+  - Internal/admin API calls remain separately marked through existing `internal_usage` fields for profit reporting exclusion.
+  - This run did not add dashboard burn-rate/ETA cards; backend scheduling protection is the implemented part.
+- Verification passed:
+  - `go test ./internal/service -run 'TestEvaluateAccountRiskSchedulability|TestSelect|TestGateway|TestAccount|TestRisk|TestScheduler'`
+  - `git diff --check`
+  - `go test ./internal/service ./internal/handler ./internal/server/routes`
+- Files changed:
+  - `backend/internal/service/gateway_service.go`
+  - `backend/internal/handler/gateway_handler.go`
+  - `backend/internal/service/gateway_risk_traffic_shaping_test.go`
+- Deployment status: not deployed in this run unless a later push/deploy entry says otherwise.
+
 ## 2026-05-06 Anthropic corp risk cap increase
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api` and production Railway service `sub2api-app`.
