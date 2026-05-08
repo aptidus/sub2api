@@ -39,7 +39,11 @@
   - `backend/internal/service/gateway_service.go`
   - `backend/internal/handler/gateway_handler.go`
   - `backend/internal/service/gateway_risk_traffic_shaping_test.go`
-- Deployment status: traffic-shaping commit `0afbf96d` pushed; first Railway build failed due pnpm tooling drift. A follow-up Dockerfile pin is being pushed to unblock deployment.
+- Deployment status:
+  - Commit `0afbf96d` pushed the traffic-shaping code but Railway deployment `9ce8f4e1-2f6d-4239-b034-eee86cc500fc` failed before release due pnpm tooling drift.
+  - Commit `1d4577ef` pinned pnpm and Railway deployment `318b11c2-9f53-41ea-bfb5-f28e585f87db` succeeded.
+  - Production health check after deployment returned `200 {"status":"ok"}`.
+  - Post-deploy log check found no new `no available accounts`, `accounts temporarily throttled`, panic, fatal, or error-level runtime entries. Existing startup warnings remain about URL allowlist, trusted proxy config, and long JWT expiry.
 
 ## 2026-05-06 Anthropic corp risk cap increase
 
