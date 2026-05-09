@@ -32,9 +32,10 @@ return 0
 `)
 
 type OpsAlertEvaluatorService struct {
-	opsService   *OpsService
-	opsRepo      OpsRepository
-	emailService *EmailService
+	opsService          *OpsService
+	opsRepo             OpsRepository
+	emailService        *EmailService
+	accountUsageService *AccountUsageService
 
 	redisClient *redis.Client
 	cfg         *config.Config
@@ -65,18 +66,20 @@ func NewOpsAlertEvaluatorService(
 	opsService *OpsService,
 	opsRepo OpsRepository,
 	emailService *EmailService,
+	accountUsageService *AccountUsageService,
 	redisClient *redis.Client,
 	cfg *config.Config,
 ) *OpsAlertEvaluatorService {
 	return &OpsAlertEvaluatorService{
-		opsService:   opsService,
-		opsRepo:      opsRepo,
-		emailService: emailService,
-		redisClient:  redisClient,
-		cfg:          cfg,
-		instanceID:   uuid.NewString(),
-		ruleStates:   map[int64]*opsAlertRuleState{},
-		emailLimiter: newSlidingWindowLimiter(0, time.Hour),
+		opsService:          opsService,
+		opsRepo:             opsRepo,
+		emailService:        emailService,
+		accountUsageService: accountUsageService,
+		redisClient:         redisClient,
+		cfg:                 cfg,
+		instanceID:          uuid.NewString(),
+		ruleStates:          map[int64]*opsAlertRuleState{},
+		emailLimiter:        newSlidingWindowLimiter(0, time.Hour),
 	}
 }
 
@@ -548,6 +551,30 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		return float64(countAccountsByCondition(availability.Accounts, func(acc *AccountAvailability) bool {
 			return acc.IsOverloaded
 		})), true
+	case "account_traffic_shape_max_score":
+		summary, ok := s.computeTrafficShapeSummary(ctx, platform, groupID)
+		if !ok {
+			return 0, false
+		}
+		return summary.MaxScore * 100, true
+	case "account_traffic_shape_hot_count":
+		summary, ok := s.computeTrafficShapeSummary(ctx, platform, groupID)
+		if !ok {
+			return 0, false
+		}
+		return float64(summary.HotCount), true
+	case "account_traffic_shape_sticky_only_count":
+		summary, ok := s.computeTrafficShapeSummary(ctx, platform, groupID)
+		if !ok {
+			return 0, false
+		}
+		return float64(summary.StickyOnlyCount), true
+	case "account_traffic_shape_hard_cap_count":
+		summary, ok := s.computeTrafficShapeSummary(ctx, platform, groupID)
+		if !ok {
+			return 0, false
+		}
+		return float64(summary.HardCapCount), true
 	case "usage_billing_missing_log_count":
 		if s == nil || s.opsRepo == nil {
 			return 0, false
@@ -592,6 +619,20 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 	default:
 		return 0, false
 	}
+}
+
+func (s *OpsAlertEvaluatorService) computeTrafficShapeSummary(ctx context.Context, platform string, groupID *int64) (*AccountTrafficShapeSummary, bool) {
+	if s == nil || s.accountUsageService == nil {
+		return nil, false
+	}
+	if strings.TrimSpace(platform) == "" {
+		platform = PlatformAnthropic
+	}
+	summary, err := s.accountUsageService.GetTrafficShapeSummary(ctx, platform, groupID)
+	if err != nil || summary == nil {
+		return nil, false
+	}
+	return summary, true
 }
 
 func compareMetric(value float64, operator string, threshold float64) bool {

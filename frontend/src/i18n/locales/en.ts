@@ -4528,7 +4528,11 @@ export default {
           accountRateLimitedCount: 'Rate-limited Accounts',
           accountErrorCount: 'Error Accounts (excluding temporarily unschedulable)',
           accountErrorRatio: 'Error Account Ratio (%)',
-          overloadAccountCount: 'Overloaded Accounts'
+          overloadAccountCount: 'Overloaded Accounts',
+          accountTrafficShapeMaxScore: 'Traffic-shape Max Score (%)',
+          accountTrafficShapeHotCount: 'Traffic-shape Hot Accounts',
+          accountTrafficShapeStickyOnlyCount: 'Traffic-shape Sticky-only Accounts',
+          accountTrafficShapeHardCapCount: 'Traffic-shape Hard-cap Accounts'
         },
         metricDescriptions: {
           successRate: 'Percentage of successful requests in the window (0-100).',
@@ -4545,7 +4549,11 @@ export default {
           accountRateLimitedCount: 'Number of rate-limited accounts within the window.',
           accountErrorCount: 'Number of error accounts within the window (excluding temporarily unschedulable).',
           accountErrorRatio: 'Error account ratio within the window (0-100).',
-          overloadAccountCount: 'Number of overloaded accounts within the window.'
+          overloadAccountCount: 'Number of overloaded accounts within the window.',
+          accountTrafficShapeMaxScore: 'Highest upstream account burn-rate score from the same traffic-shaping logic used by the scheduler.',
+          accountTrafficShapeHotCount: 'Number of Anthropic upstream accounts at or above the throttle threshold.',
+          accountTrafficShapeStickyOnlyCount: 'Number of Anthropic upstream accounts currently accepting only existing sticky sessions.',
+          accountTrafficShapeHardCapCount: 'Number of Anthropic upstream accounts temporarily blocked by hard traffic-shape caps.'
         },
         hints: {
           recommended: 'Recommended: operator {operator}, threshold {threshold}{unit}',

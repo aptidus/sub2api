@@ -110,6 +110,19 @@ type AccountTrafficShapeStatus struct {
 	UpdatedAt  time.Time                  `json:"updated_at"`
 }
 
+type AccountTrafficShapeSummary struct {
+	Platform        string    `json:"platform"`
+	GroupID         *int64    `json:"group_id,omitempty"`
+	TotalAccounts   int       `json:"total_accounts"`
+	NormalCount     int       `json:"normal_count"`
+	HotCount        int       `json:"hot_count"`
+	ThrottledCount  int       `json:"throttled_count"`
+	StickyOnlyCount int       `json:"sticky_only_count"`
+	HardCapCount    int       `json:"hard_cap_count"`
+	MaxScore        float64   `json:"max_score"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type AccountRiskDimensionStat struct {
 	AccountID       int64  `json:"account_id"`
 	Label           string `json:"label"`
@@ -1538,8 +1551,12 @@ func (s *AccountUsageService) GetTrafficShapeStatusBatch(ctx context.Context, ac
 		stats5m := fiveMinute[accountID]
 		stats5h := fiveHour[accountID]
 		evaluation := evaluateAccountRiskSchedulability(account, stats5m, stats5h)
+		state := riskSchedulabilityStateName(evaluation.schedulability)
+		if state == "normal" && evaluation.score >= accountRiskThrottleRatio(account) {
+			state = "throttled"
+		}
 		result[accountID] = AccountTrafficShapeStatus{
-			State:      riskSchedulabilityStateName(evaluation.schedulability),
+			State:      state,
 			Score:      evaluation.score,
 			Reasons:    evaluation.reasons,
 			FiveMinute: stats5m,
@@ -1550,6 +1567,79 @@ func (s *AccountUsageService) GetTrafficShapeStatusBatch(ctx context.Context, ac
 	}
 
 	return result, nil
+}
+
+func (s *AccountUsageService) GetTrafficShapeSummary(ctx context.Context, platform string, groupID *int64) (*AccountTrafficShapeSummary, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, fmt.Errorf("account usage service is not ready")
+	}
+	platform = strings.TrimSpace(platform)
+	if platform == "" {
+		platform = PlatformAnthropic
+	}
+
+	accounts, err := s.accountRepo.ListByPlatform(ctx, platform)
+	if err != nil {
+		return nil, err
+	}
+	if groupID != nil && *groupID > 0 {
+		filtered := make([]Account, 0, len(accounts))
+		for _, account := range accounts {
+			if accountHasGroup(&account, *groupID) {
+				filtered = append(filtered, account)
+			}
+		}
+		accounts = filtered
+	}
+
+	statuses, err := s.GetTrafficShapeStatusBatch(ctx, accounts)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	out := &AccountTrafficShapeSummary{
+		Platform:  platform,
+		UpdatedAt: now,
+	}
+	if groupID != nil && *groupID > 0 {
+		id := *groupID
+		out.GroupID = &id
+	}
+
+	for _, status := range statuses {
+		out.TotalAccounts++
+		if status.Score > out.MaxScore {
+			out.MaxScore = status.Score
+		}
+		switch status.State {
+		case "hard_cap":
+			out.HardCapCount++
+			out.HotCount++
+		case "sticky_only":
+			out.StickyOnlyCount++
+			out.HotCount++
+		case "throttled":
+			out.ThrottledCount++
+			out.HotCount++
+		default:
+			out.NormalCount++
+		}
+	}
+
+	return out, nil
+}
+
+func accountHasGroup(account *Account, groupID int64) bool {
+	if account == nil || groupID <= 0 {
+		return false
+	}
+	for _, group := range account.Groups {
+		if group != nil && group.ID == groupID {
+			return true
+		}
+	}
+	return false
 }
 
 func classifyAccountRisk(account *Account, fiveMinute AccountRiskWindowStats, fiveHour AccountRiskWindowStats) (string, []string, string) {

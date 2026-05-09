@@ -28,6 +28,47 @@ func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashb
 	return &OpsDashboardOverview{}, nil
 }
 
+type trafficShapeAccountRepoStub struct {
+	AccountRepository
+	accounts []Account
+}
+
+func (s *trafficShapeAccountRepoStub) ListByPlatform(ctx context.Context, platform string) ([]Account, error) {
+	out := make([]Account, 0, len(s.accounts))
+	for _, account := range s.accounts {
+		if account.Platform == platform {
+			out = append(out, account)
+		}
+	}
+	return out, nil
+}
+
+type trafficShapeUsageRepoStub struct {
+	UsageLogRepository
+	fiveMinute map[int64]AccountRiskWindowStats
+	fiveHour   map[int64]AccountRiskWindowStats
+}
+
+func (s *trafficShapeUsageRepoStub) GetAccountRiskWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]AccountRiskWindowStats, error) {
+	out := make(map[int64]AccountRiskWindowStats, len(accountIDs))
+	window := s.fiveHour
+	if endTime.Sub(startTime) <= 10*time.Minute {
+		window = s.fiveMinute
+	}
+	for _, accountID := range accountIDs {
+		if stat, ok := window[accountID]; ok {
+			out[accountID] = stat
+		} else {
+			out[accountID] = AccountRiskWindowStats{AccountID: accountID}
+		}
+	}
+	return out, nil
+}
+
+func (s *trafficShapeUsageRepoStub) GetAccountRiskDimensionStats(ctx context.Context, accountIDs []int64, startTime, endTime time.Time, dimension string, limit int) (map[int64][]AccountRiskDimensionStat, error) {
+	return map[int64][]AccountRiskDimensionStat{}, nil
+}
+
 func TestComputeGroupAvailableRatio(t *testing.T) {
 	t.Parallel()
 
@@ -206,6 +247,103 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 			if !tt.wantOK {
 				return
 			}
+			require.InDelta(t, tt.wantValue, gotValue, 0.0001)
+		})
+	}
+}
+
+func TestComputeRuleMetricTrafficShapeIndicators(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(101)
+	accountRepo := &trafficShapeAccountRepoStub{
+		accounts: []Account{
+			{
+				ID:       1,
+				Platform: PlatformAnthropic,
+				Type:     AccountTypeOAuth,
+				Groups:   []*Group{{ID: groupID}},
+				Extra: map[string]any{
+					"risk_max_requests_5m": 100,
+				},
+			},
+			{
+				ID:       2,
+				Platform: PlatformAnthropic,
+				Type:     AccountTypeOAuth,
+				Groups:   []*Group{{ID: groupID}},
+				Extra: map[string]any{
+					"risk_max_requests_5m": 100,
+				},
+			},
+			{
+				ID:       3,
+				Platform: PlatformAnthropic,
+				Type:     AccountTypeOAuth,
+				Groups:   []*Group{{ID: 202}},
+				Extra: map[string]any{
+					"risk_max_requests_5m": 100,
+				},
+			},
+		},
+	}
+	usageRepo := &trafficShapeUsageRepoStub{
+		fiveMinute: map[int64]AccountRiskWindowStats{
+			1: {AccountID: 1, Requests: 70},
+			2: {AccountID: 2, Requests: 90},
+			3: {AccountID: 3, Requests: 100},
+		},
+		fiveHour: map[int64]AccountRiskWindowStats{},
+	}
+	svc := &OpsAlertEvaluatorService{
+		opsRepo: &stubOpsRepo{overview: &OpsDashboardOverview{}},
+		accountUsageService: &AccountUsageService{
+			accountRepo:  accountRepo,
+			usageLogRepo: usageRepo,
+		},
+	}
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		metricType string
+		groupID    *int64
+		wantValue  float64
+	}{
+		{
+			name:       "max score all groups",
+			metricType: "account_traffic_shape_max_score",
+			wantValue:  100,
+		},
+		{
+			name:       "hot count scoped group",
+			metricType: "account_traffic_shape_hot_count",
+			groupID:    &groupID,
+			wantValue:  2,
+		},
+		{
+			name:       "sticky-only count scoped group",
+			metricType: "account_traffic_shape_sticky_only_count",
+			groupID:    &groupID,
+			wantValue:  1,
+		},
+		{
+			name:       "hard-cap count all groups",
+			metricType: "account_traffic_shape_hard_cap_count",
+			wantValue:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotValue, gotOK := svc.computeRuleMetric(ctx, &OpsAlertRule{MetricType: tt.metricType}, nil, start, end, PlatformAnthropic, tt.groupID)
+			require.True(t, gotOK)
 			require.InDelta(t, tt.wantValue, gotValue, 0.0001)
 		})
 	}

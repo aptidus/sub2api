@@ -228,6 +228,39 @@ const metricDefinitions = computed(() => {
       description: t('admin.ops.alertRules.metricDescriptions.overloadAccountCount'),
       recommendedOperator: '>',
       recommendedThreshold: 0
+    },
+    {
+      type: 'account_traffic_shape_max_score',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountTrafficShapeMaxScore'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountTrafficShapeMaxScore'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 70,
+      unit: '%'
+    },
+    {
+      type: 'account_traffic_shape_hot_count',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountTrafficShapeHotCount'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountTrafficShapeHotCount'),
+      recommendedOperator: '>',
+      recommendedThreshold: 0
+    },
+    {
+      type: 'account_traffic_shape_sticky_only_count',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountTrafficShapeStickyOnlyCount'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountTrafficShapeStickyOnlyCount'),
+      recommendedOperator: '>',
+      recommendedThreshold: 0
+    },
+    {
+      type: 'account_traffic_shape_hard_cap_count',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountTrafficShapeHardCapCount'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountTrafficShapeHardCapCount'),
+      recommendedOperator: '>',
+      recommendedThreshold: 0
     }
   ] satisfies MetricDefinition[]
 })

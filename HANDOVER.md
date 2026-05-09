@@ -1,5 +1,33 @@
 # Sub2API Handover
 
+## 2026-05-08 Traffic-shape alert metrics and IP spoofing guardrails
+
+- Scope: `/Users/benzhang/dev/aptidus-sub2api`.
+- Goal: reduce practical production risk after traffic shaping by making upstream burn-rate alertable and by testing that spoofed client IP headers are ignored unless the request comes through a trusted proxy.
+- Backend changes:
+  - Added `AccountTrafficShapeSummary` and `GetTrafficShapeSummary` in `backend/internal/service/account_usage_service.go`.
+  - Added four Ops alert metrics backed by the same traffic-shaping logic used by the scheduler:
+    - `account_traffic_shape_max_score`
+    - `account_traffic_shape_hot_count`
+    - `account_traffic_shape_sticky_only_count`
+    - `account_traffic_shape_hard_cap_count`
+  - Wired `AccountUsageService` into `OpsAlertEvaluatorService` through `backend/internal/service/wire.go`.
+  - Fixed traffic-shape status reporting so accounts at the throttle threshold show as `throttled` instead of looking `normal`.
+  - Added tests proving trusted proxy parsing ignores spoofed `X-Forwarded-For` / `X-Real-IP` from public untrusted remotes and only accepts forwarded headers from configured trusted proxy ranges.
+- Frontend changes:
+  - Added the new traffic-shape alert metrics to the admin Ops alert rule picker.
+  - Added English and Chinese labels/descriptions so admins can create alerts without guessing what the metrics mean.
+- Verification passed before push:
+  - `go test -tags unit ./internal/service -run 'TestComputeRuleMetricTrafficShapeIndicators|TestComputeRuleMetricNewIndicators'`
+  - `go test ./internal/service ./internal/handler ./internal/server/routes ./internal/pkg/ip`
+  - `pnpm --dir frontend exec vue-tsc --noEmit`
+  - `pnpm --dir frontend run build`
+  - `git diff --check`
+- Build notes:
+  - Frontend build completed with existing Vite dynamic-import/chunk-size warnings; no new build failure.
+- Deployment status:
+  - Pending at the time this section was first written.
+
 ## 2026-05-08 Production warning cleanup
 
 - Scope: Railway production service `sub2api-app`, environment `production`.

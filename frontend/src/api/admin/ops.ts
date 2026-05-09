@@ -742,6 +742,10 @@ export type MetricType =
   | 'account_error_count'
   | 'account_error_ratio'
   | 'overload_account_count'
+  | 'account_traffic_shape_max_score'
+  | 'account_traffic_shape_hot_count'
+  | 'account_traffic_shape_sticky_only_count'
+  | 'account_traffic_shape_hard_cap_count'
 export type Operator = '>' | '>=' | '<' | '<=' | '==' | '!='
 
 export interface AlertRule {

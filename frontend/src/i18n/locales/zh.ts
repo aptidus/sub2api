@@ -4690,7 +4690,11 @@ export default {
           accountRateLimitedCount: '限流账号数',
           accountErrorCount: '错误账号数（不含临时不可调度）',
           accountErrorRatio: '错误账号比例 (%)',
-          overloadAccountCount: '过载账号数'
+          overloadAccountCount: '过载账号数',
+          accountTrafficShapeMaxScore: '流量保护最高分 (%)',
+          accountTrafficShapeHotCount: '流量保护热点账号数',
+          accountTrafficShapeStickyOnlyCount: '流量保护仅粘性账号数',
+          accountTrafficShapeHardCapCount: '流量保护硬封顶账号数'
         },
         metricDescriptions: {
           successRate: '统计窗口内成功请求占比（0~100）。',
@@ -4707,7 +4711,11 @@ export default {
           accountRateLimitedCount: '统计窗口内被限流的账号数量。',
           accountErrorCount: '统计窗口内产生错误的账号数量（不含临时不可调度）。',
           accountErrorRatio: '统计窗口内错误账号占比（0~100）。',
-          overloadAccountCount: '统计窗口内过载账号数量。'
+          overloadAccountCount: '统计窗口内过载账号数量。',
+          accountTrafficShapeMaxScore: '使用与调度器相同的流量保护逻辑，统计上游账号最高消耗速度分数。',
+          accountTrafficShapeHotCount: '达到或超过降速阈值的 Anthropic 上游账号数量。',
+          accountTrafficShapeStickyOnlyCount: '当前只允许已有粘性会话继续使用的 Anthropic 上游账号数量。',
+          accountTrafficShapeHardCapCount: '因流量保护硬封顶而临时阻止调度的 Anthropic 上游账号数量。'
         },
         hints: {
           recommended: '推荐：运算符 {operator}，阈值 {threshold}{unit}',
