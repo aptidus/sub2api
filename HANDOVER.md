@@ -20,13 +20,18 @@
 - Verification passed before push:
   - `go test -tags unit ./internal/service -run 'TestComputeRuleMetricTrafficShapeIndicators|TestComputeRuleMetricNewIndicators'`
   - `go test ./internal/service ./internal/handler ./internal/server/routes ./internal/pkg/ip`
+  - Follow-up after failed deploy: `go test ./cmd/server`
   - `pnpm --dir frontend exec vue-tsc --noEmit`
   - `pnpm --dir frontend run build`
   - `git diff --check`
 - Build notes:
   - Frontend build completed with existing Vite dynamic-import/chunk-size warnings; no new build failure.
 - Deployment status:
-  - Pending at the time this section was first written.
+  - First pushed commit `23c78c13` failed before release in Railway deployment `ef2b4a7d-3773-4541-b8e6-b504ebbb7c22`.
+  - Failure cause: generated `backend/cmd/server/wire_gen.go` still called `ProvideOpsAlertEvaluatorService` without the new `AccountUsageService` dependency.
+  - Production stayed on the previous healthy deployment because the failed build never released.
+  - Fixed `wire_gen.go` and added `go test ./cmd/server` to the verification trail.
+  - Follow-up deploy pending at the time this section was updated.
 
 ## 2026-05-08 Production warning cleanup
 
