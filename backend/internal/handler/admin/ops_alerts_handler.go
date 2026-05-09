@@ -30,6 +30,10 @@ var validOpsAlertMetricTypes = []string{
 	"account_error_count",
 	"account_error_ratio",
 	"overload_account_count",
+	"account_traffic_shape_max_score",
+	"account_traffic_shape_hot_count",
+	"account_traffic_shape_sticky_only_count",
+	"account_traffic_shape_hard_cap_count",
 	"usage_billing_missing_log_count",
 }
 
@@ -93,7 +97,8 @@ func isPercentOrRateMetric(metricType string) bool {
 		"memory_usage_percent",
 		"group_available_ratio",
 		"group_rate_limit_ratio",
-		"account_error_ratio":
+		"account_error_ratio",
+		"account_traffic_shape_max_score":
 		return true
 	default:
 		return false

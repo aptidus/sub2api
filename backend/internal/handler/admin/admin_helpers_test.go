@@ -208,7 +208,18 @@ func TestOpsAlertRuleValidation(t *testing.T) {
 	require.Error(t, err)
 
 	require.True(t, isPercentOrRateMetric("error_rate"))
+	require.True(t, isPercentOrRateMetric("account_traffic_shape_max_score"))
 	require.False(t, isPercentOrRateMetric("concurrency_queue_depth"))
+
+	trafficShapeRaw := map[string]json.RawMessage{
+		"name":        json.RawMessage(`"Traffic shape hot accounts"`),
+		"metric_type": json.RawMessage(`"account_traffic_shape_hot_count"`),
+		"operator":    json.RawMessage(`">"`),
+		"threshold":   json.RawMessage(`0`),
+	}
+	validated, err = validateOpsAlertRulePayload(trafficShapeRaw)
+	require.NoError(t, err)
+	require.Equal(t, "account_traffic_shape_hot_count", validated.MetricType)
 }
 
 func TestOpsWSHelpers(t *testing.T) {

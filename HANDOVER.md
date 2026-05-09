@@ -35,6 +35,19 @@
   - Production health check returned `200 {"status":"ok"}`.
   - Filtered production log scan for high JWT expiry, disabled URL allowlist, missing CORS origins, trusted-proxy warnings, proxy setup failures, panic, fatal, error-level entries, `no available accounts`, and `accounts temporarily throttled` returned no matches.
 
+## 2026-05-08 Admin-recipient traffic-shape email alerts
+
+- Scope: production Ops alert rules and email notification settings.
+- User clarified alert emails should go to admins only, not internal/test/customer accounts.
+- Code fix before configuring production:
+  - Added the new traffic-shape metric names to backend admin alert-rule validation in `backend/internal/handler/admin/ops_alerts_handler.go`.
+  - Added a validation test in `backend/internal/handler/admin/admin_helpers_test.go`.
+- Verification passed:
+  - `go test ./internal/handler/admin ./cmd/server ./internal/server/routes`
+  - `go test ./internal/service ./internal/handler ./internal/pkg/ip`
+- Production configuration status:
+  - Pending at the time this section was first written.
+
 ## 2026-05-08 Production warning cleanup
 
 - Scope: Railway production service `sub2api-app`, environment `production`.
