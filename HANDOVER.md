@@ -46,7 +46,19 @@
   - `go test ./internal/handler/admin ./cmd/server ./internal/server/routes`
   - `go test ./internal/service ./internal/handler ./internal/pkg/ip`
 - Production configuration status:
-  - Pending at the time this section was first written.
+  - Commit `e22ff429` deployed successfully as Railway deployment `eadea32e-2525-4e76-a650-571e670ff9c1`.
+  - Production health check returned `200 {"status":"ok"}`.
+  - Configured Ops alert email recipients from active admin users only:
+    - `ben.zhang.22@gmail.com`
+    - `hugochougt@gmail.com`
+    - `xifengzhu520@gmail.com`
+  - Enabled alert emails with `min_severity=all` and `rate_limit_per_hour=20`.
+  - Created/verified three traffic-shape alert rules with `notify_email=true`:
+    - `Anthropic traffic-shape warning`: `account_traffic_shape_max_score >= 70`, P2, 5-minute window, 5-minute sustain, 30-minute cooldown.
+    - `Anthropic sticky-only accounts`: `account_traffic_shape_sticky_only_count > 0`, P1, 5-minute window, 1-minute sustain, 20-minute cooldown.
+    - `Anthropic hard-cap accounts`: `account_traffic_shape_hard_cap_count > 0`, P1, 5-minute window, 1-minute sustain, 15-minute cooldown.
+  - Read-only verification confirmed exactly three active admin recipients and the three alert rules above are enabled.
+  - Filtered production log scan for error-level entries, panic, fatal, `no available accounts`, `accounts temporarily throttled`, validation rejection text, and Ops alert evaluator errors returned no matches.
 
 ## 2026-05-08 Production warning cleanup
 
