@@ -1,5 +1,21 @@
 # Sub2API Handover
 
+## 2026-05-08 Production warning cleanup
+
+- Scope: Railway production service `sub2api-app`, environment `production`.
+- Safe environment variables set:
+  - `JWT_EXPIRE_HOUR=24`
+  - `SECURITY_URL_ALLOWLIST_ENABLED=true`
+  - `CORS_ALLOWED_ORIGINS=https://sub2api-app-production.up.railway.app`
+  - `CORS_ALLOW_CREDENTIALS=true`
+- Triggered one Railway redeploy after setting variables with `--skip-deploys`.
+- Railway deployment `a90d16ef-9bf0-4932-9ac5-99bf4551fda2` succeeded.
+- Production health check returned `200 {"status":"ok"}`.
+- Post-deploy log check confirmed the previous warnings for high JWT expiry, disabled URL allowlist, and missing CORS origins no longer appear.
+- Remaining warning:
+  - `server.trusted_proxies is empty in release mode; client IP trust chain is disabled`
+  - This was intentionally left unchanged. Do not set `SERVER_TRUSTED_PROXIES=0.0.0.0/0` without a code review because trusting all proxy sources can make spoofed `X-Forwarded-For` values affect IP-based tracking. Railway community guidance says `X-Forwarded-For` should be handled carefully by trusting the right-most value; the current Gin trusted-proxy behavior should be reviewed before changing this.
+
 ## 2026-05-08 Admin traffic-shape visibility
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`.
