@@ -31,7 +31,9 @@
   - Failure cause: generated `backend/cmd/server/wire_gen.go` still called `ProvideOpsAlertEvaluatorService` without the new `AccountUsageService` dependency.
   - Production stayed on the previous healthy deployment because the failed build never released.
   - Fixed `wire_gen.go` and added `go test ./cmd/server` to the verification trail.
-  - Follow-up deploy pending at the time this section was updated.
+  - Follow-up commit `5080a601` deployed successfully as Railway deployment `c0cc40f6-7532-4653-9270-42aa35fa2697`.
+  - Production health check returned `200 {"status":"ok"}`.
+  - Filtered production log scan for high JWT expiry, disabled URL allowlist, missing CORS origins, trusted-proxy warnings, proxy setup failures, panic, fatal, error-level entries, `no available accounts`, and `accounts temporarily throttled` returned no matches.
 
 ## 2026-05-08 Production warning cleanup
 
