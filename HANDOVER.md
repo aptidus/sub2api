@@ -12,9 +12,12 @@
 - Railway deployment `a90d16ef-9bf0-4932-9ac5-99bf4551fda2` succeeded.
 - Production health check returned `200 {"status":"ok"}`.
 - Post-deploy log check confirmed the previous warnings for high JWT expiry, disabled URL allowlist, and missing CORS origins no longer appear.
-- Remaining warning:
-  - `server.trusted_proxies is empty in release mode; client IP trust chain is disabled`
-  - This was intentionally left unchanged. Do not set `SERVER_TRUSTED_PROXIES=0.0.0.0/0` without a code review because trusting all proxy sources can make spoofed `X-Forwarded-For` values affect IP-based tracking. Railway community guidance says `X-Forwarded-For` should be handled carefully by trusting the right-most value; the current Gin trusted-proxy behavior should be reviewed before changing this.
+- Follow-up trusted-proxy cleanup:
+  - Set `SERVER_TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,127.0.0.1/32,::1/128,fc00::/7,fe80::/10`.
+  - Used private/internal ranges instead of `0.0.0.0/0` to avoid trusting every public source.
+  - Railway deployment `c54ce23d-254e-43e0-8e7e-a85d4d0e69d4` succeeded.
+  - Production health check returned `200 {"status":"ok"}`.
+  - Filtered log scan for high JWT expiry, disabled URL allowlist, missing CORS origins, trusted-proxy warning, proxy setup failures, panic, fatal, and error-level entries returned no matches.
 
 ## 2026-05-08 Admin traffic-shape visibility
 
