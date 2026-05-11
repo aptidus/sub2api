@@ -59,19 +59,36 @@ const emit = defineEmits<{
   'update:modelValue': [value: number[]]
 }>()
 
-// Filter groups by platform if specified
+const includeSelectedGroups = (groups: AdminGroup[]) => {
+  if (!props.modelValue.length) {
+    return groups
+  }
+  const included = new Set(groups.map((group) => group.id))
+  const selected = props.groups.filter(
+    (group) => props.modelValue.includes(group.id) && !included.has(group.id)
+  )
+  return [...groups, ...selected]
+}
+
+// Filter groups by platform if specified. If no same-platform groups exist, show all groups
+// so admins can still bind accounts in deployments that intentionally use a shared default group.
 const filteredGroups = computed(() => {
   if (!props.platform) {
     return props.groups
   }
   // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
   if (props.platform === 'antigravity' && props.mixedScheduling) {
-    return props.groups.filter(
-      (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
+    return includeSelectedGroups(
+      props.groups.filter(
+        (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
+      )
     )
   }
-  // 默认：只能选择同 platform 的分组
-  return props.groups.filter((g) => g.platform === props.platform)
+  const samePlatformGroups = props.groups.filter((g) => g.platform === props.platform)
+  if (samePlatformGroups.length === 0) {
+    return props.groups
+  }
+  return includeSelectedGroups(samePlatformGroups)
 })
 
 const handleChange = (groupId: number, checked: boolean) => {

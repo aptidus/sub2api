@@ -1,5 +1,26 @@
 # Sub2API Handover
 
+## 2026-05-11 OpenAI/Codex group selector fallback
+
+- Scope: production account group binding and `/Users/benzhang/dev/aptidus-sub2api`.
+- Issue:
+  - User could not select a group when creating the latest OpenAI/Codex account because the group picker filtered groups by account platform.
+  - Production only had one active group: `1:anthropic:default`.
+  - The older OpenAI/Codex accounts were already bound to `1:anthropic:default`, but the newest OpenAI account `17` had no group.
+- Production data fix:
+  - Bound account `17` (`AmandaMartin1046@outlook.com-pro-plan`) to group `1:anthropic:default`.
+  - Verified account `17` now shows `1:anthropic:default`, matching the other OpenAI/Codex accounts.
+- Code change:
+  - Updated `frontend/src/components/common/GroupSelector.vue`.
+  - The selector still prefers same-platform groups.
+  - If no same-platform groups exist, it now falls back to showing all available groups so admins are not trapped with an empty selector.
+  - Existing selected groups remain visible even if they do not match the current platform filter.
+- Verification passed:
+  - `pnpm --dir frontend exec vue-tsc --noEmit`
+  - `pnpm --dir frontend run build`
+- Deployment status:
+  - Pending at the time this section was first written.
+
 ## 2026-05-08 Traffic-shape alert metrics and IP spoofing guardrails
 
 - Scope: `/Users/benzhang/dev/aptidus-sub2api`.
