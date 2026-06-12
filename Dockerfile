@@ -30,6 +30,9 @@ RUN pnpm install --frozen-lockfile
 
 # Copy frontend source and build
 COPY frontend/ ./
+# The admin compliance dialog imports legal markdown from ../../../../docs.
+# Keep the same repo-root layout inside the build container.
+COPY docs/ /app/docs/
 RUN pnpm run build
 
 # -----------------------------------------------------------------------------
