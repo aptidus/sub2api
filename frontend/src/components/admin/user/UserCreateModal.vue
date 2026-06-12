@@ -28,7 +28,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="input-label">{{ t('admin.users.columns.balance') }}</label>
-          <input v-model.number="form.balance" type="number" step="any" class="input" />
+          <input v-model="form.balance" type="number" step="any" class="input" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.users.columns.concurrency') }}</label>
@@ -47,13 +47,6 @@
         />
         <p class="input-hint">{{ t('admin.users.form.rpmLimitHint') }}</p>
       </div>
-      <label class="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20">
-        <input v-model="form.internal_usage" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
-        <span>
-          <span class="block font-medium text-gray-900 dark:text-white">{{ t('admin.users.form.internalUsage') }}</span>
-          <span class="block text-xs text-gray-600 dark:text-gray-400">{{ t('admin.users.form.internalUsageHint') }}</span>
-        </span>
-      </label>
     </form>
     <template #footer>
       <div class="flex justify-end gap-3">
@@ -76,18 +69,24 @@ import Icon from '@/components/icons/Icon.vue'
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n()
 
-const form = reactive({ email: '', password: '', username: '', notes: '', balance: 0, concurrency: 1, rpm_limit: 0, internal_usage: false })
+const form = reactive({ email: '', password: '', username: '', notes: '', balance: '', concurrency: 1, rpm_limit: 0 })
 
 const { loading, submit } = useForm({
   form,
   submitFn: async (data) => {
-    await adminAPI.users.create(data)
+    const { balance: rawBalance, ...rest } = data
+    const balance = String(rawBalance).trim()
+    const payload: typeof rest & { balance?: number } = { ...rest }
+    if (balance !== '') {
+      payload.balance = Number(balance)
+    }
+    await adminAPI.users.create(payload)
     emit('success'); emit('close')
   },
   successMsg: t('admin.users.userCreated')
 })
 
-watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', username: '', notes: '', balance: 0, concurrency: 1, rpm_limit: 0, internal_usage: false }) })
+watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', username: '', notes: '', balance: '', concurrency: 1, rpm_limit: 0 }) })
 
 const generateRandomPassword = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'

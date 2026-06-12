@@ -29,12 +29,15 @@ var validOpsAlertMetricTypes = []string{
 	"account_rate_limited_count",
 	"account_error_count",
 	"account_error_ratio",
+	"account_temp_unscheduled_count",
 	"overload_account_count",
 	"account_traffic_shape_max_score",
 	"account_traffic_shape_hot_count",
 	"account_traffic_shape_sticky_only_count",
 	"account_traffic_shape_hard_cap_count",
 	"usage_billing_missing_log_count",
+	"proxy_expired_count",
+	"proxy_expiring_soon_count",
 }
 
 var validOpsAlertMetricTypeSet = func() map[string]struct{} {
